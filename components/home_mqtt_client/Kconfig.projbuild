@@ -1,0 +1,18 @@
+menu "MQTT configuration"
+
+    config BROKER_URL
+        string "Broker URL"
+        default "mqtt://mqtt.local"
+        help
+            URL of the broker to connect to
+    config BROKER_USER
+        string "Broker user"
+        default "mqtt"
+        help
+            User of the broker to connect to
+    config BROKER_PASSWORD
+        string "Broker password"
+        default "mqtt"
+        help
+            Password of the broker to connect to
+endmenu

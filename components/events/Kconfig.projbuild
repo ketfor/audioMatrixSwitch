@@ -1,0 +1,17 @@
+menu "Application events configuration "
+
+    config CALLBACK_SIZE
+        int "Size of Callback"
+        range 1 32
+        default 32
+        help
+            Size of Callback.
+
+    config QUEUE_SIZE
+        int "Size of queue"
+        range 1 64
+        default 32
+        help
+            queue of Callback.
+
+endmenu

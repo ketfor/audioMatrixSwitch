@@ -1,0 +1,58 @@
+menu "Audiomatrix configuration"
+    config AM_MQTT_HA_TOPIC
+        string "Hommeassistant MQTT topic"
+        default "homeassistant"
+        help
+            Hommeassistant MQTT topic
+    config AM_MQTT_DEVICE_TOPIC
+        string "Device MQTT topic"
+        default "myhome/audiomatrix"
+        help
+            Device MQTT topic
+    config AM_DEVICE_NAME
+        string "Hommeassistant device name"
+        default "Audiomatrix"
+        help
+            Hommeassistant device name
+    config AM_DEVICE_MANUFACTURER
+        string "Device manufacturer"
+        default "Vedrel"
+        help
+            Manufacturer of device
+    config AM_DEVICE_MODEL
+        string "Device model name"
+        default "Audiomatrix switch"
+        help
+            Model name of device
+    config AM_DEVICE_MODEL_ID
+        string "Device model ID"
+        default "Audiomatrix switch 3x4"
+        help
+            Model ID of device
+    config AM_DEVICE_IN_PORTS
+    int "Number of input ports"
+    default 3
+    help
+        Number of input ports    
+    config AM_DEVICE_OUT_PORTS
+        int "Number of output ports"
+        default 4
+        help
+            Number of output ports    
+    config AM_DEVICE_HW
+        string "Device hardware version"
+        default "1.0.0"
+        help
+            Version of device hardware  
+    config AM_DEVICE_SW
+        string "Device software version"
+        default "1.0.0"
+        help
+            Version of device software 
+    config AM_CONFIGURATION_URL
+        string "Device confuguration URL"
+        default "http://audiomatrix.local"
+        help
+            Device confuguration URL
+
+endmenu

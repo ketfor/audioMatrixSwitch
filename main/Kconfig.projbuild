@@ -1,0 +1,9 @@
+menu "MyApp configuration"
+
+    config APP_NAME
+        string "Application name"
+        default "Web application"
+        help
+            Name of application.
+
+endmenu
