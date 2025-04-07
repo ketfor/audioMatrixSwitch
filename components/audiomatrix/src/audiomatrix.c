@@ -4,7 +4,6 @@
 #include "esp_event.h"
 #include "esp_log.h"
 #include "home_wifi.h"
-//#include "esp_chip_info.h"
 #include "lwip/err.h"
 #include "lwip/sys.h"
 #include "cJSON.h"
@@ -256,7 +255,8 @@ BaseType_t getHaMQTTStateTopic(char *topic, size_t topicSize)
     return pdTRUE;
 }
 
-BaseType_t getHaMQTTOutputConfig(uint8_t num, char *topic, size_t topicSize, char *payload, size_t payloadSize){
+BaseType_t getHaMQTTOutputConfig(uint8_t num, char *topic, size_t topicSize, char *payload, size_t payloadSize)
+{
 
     output_t *output = &(device.outputs[num]);
     if (output->class == CLASS_DISABLE)
@@ -355,7 +355,8 @@ BaseType_t getHaMQTTOutputConfig(uint8_t num, char *topic, size_t topicSize, cha
     return result;
 }
 
-BaseType_t getHaMQTTDeviceState(char *topic, size_t topicSize, char *payload, size_t payloadSize){
+BaseType_t getHaMQTTDeviceState(char *topic, size_t topicSize, char *payload, size_t payloadSize)
+{
     
     strlcpy(topic, device.stateTopic, topicSize);
     
@@ -405,7 +406,8 @@ BaseType_t setHaMQTTOutput(char *topic, size_t topicSize, char *payload, size_t 
 }
 
 /// @brief Audiomatrix initialization
-void audiomatrixInit(void){
+void audiomatrixInit(void)
+{
     /*
     if(nvsOpen(NVSGROUP, NVS_READWRITE, &pHandle) == pdTRUE) {
         ESP_LOGI(TAG, "Erase all preferences at namespace 'device'");

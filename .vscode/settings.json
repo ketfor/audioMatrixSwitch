@@ -35,7 +35,8 @@
         "memory_resource": "cpp",
         "ratio": "cpp",
         "nvs_flash.h": "c",
-        "home_wifi.h": "c"
+        "home_wifi.h": "c",
+        "nvs_preferences.h": "c"
     },
     "idf.flashType": "UART"
 }
