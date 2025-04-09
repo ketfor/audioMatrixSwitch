@@ -10,7 +10,7 @@ extern "C" {
 #endif
 
 #define FILE_PATH_MAX (ESP_VFS_PATH_MAX + 128)
-#define SCRATCH_BUFSIZE (10240)
+#define SCRATCH_BUFSIZE (4096)
 
 typedef struct rest_server_context {
     char base_path[ESP_VFS_PATH_MAX + 1];

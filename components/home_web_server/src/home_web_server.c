@@ -44,6 +44,28 @@ static const char * JSON_Message(const char *mes )
     return jmes;
 }
 
+static esp_err_t getPostContent(httpd_req_t *req, char *buf, size_t bufSize)
+{
+    int total_len = req->content_len;
+    int cur_len = 0;
+    
+    int received = 0;
+    if (total_len >= bufSize) {
+        return -21002;
+    }
+    while (cur_len < total_len) {
+        received = httpd_req_recv(req, buf + cur_len, total_len);
+        if (received <= 0) {
+            return -21003;
+        }
+        cur_len += received;
+    }
+    buf[total_len] = '\0';
+
+    ESP_LOGI(TAG, "post: %s", buf);
+    return ESP_OK;
+}
+
 /* Send HTTP response with the contents of the requested file */
 static esp_err_t restCommonGetHandler(httpd_req_t *req)
 {
@@ -52,17 +74,27 @@ static esp_err_t restCommonGetHandler(httpd_req_t *req)
     rest_server_context_t *rest_context = (rest_server_context_t *)req->user_ctx;
     strlcpy(filepath, rest_context->base_path, sizeof(filepath));
 
-    if (req->uri[strlen(req->uri) - 1] == '/') {
+    ESP_LOGI(TAG, "uri: %s", req->uri);
+    if (strcmp(req->uri, "/matrix") == 0 ||
+            strcmp(req->uri, "/config") == 0) 
+    {
+        strlcat(filepath, req->uri, sizeof(filepath));
+        strlcat(filepath, ".html", sizeof(filepath));
+    }
+    else if (req->uri[strlen(req->uri) - 1] == '/') {
         strlcat(filepath, "/index.html", sizeof(filepath));
     } else {
         strlcat(filepath, req->uri, sizeof(filepath));
     }
     int fd = open(filepath, O_RDONLY, 0);
     if (fd == -1) {
-        ESP_LOGE(TAG, "Failed to open file : %s", filepath);
+        ESP_LOGW(TAG, "Failed to open file : %s", filepath);
         /* Respond with 500 Internal Server Error */
-        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to read existing file");
-        return ESP_FAIL;
+        //httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to read existing file");
+        //return ESP_FAIL;
+        strlcpy(filepath, rest_context->base_path, sizeof(filepath));
+        strlcat(filepath, "/404.html", sizeof(filepath));
+        fd = open(filepath, O_RDONLY, 0);
     }
 
     set_content_type_from_file(req, filepath);
@@ -95,77 +127,85 @@ static esp_err_t restCommonGetHandler(httpd_req_t *req)
     return ESP_OK;
 }
 
-static esp_err_t onboardLedSetPostHandler(httpd_req_t *req)
+static esp_err_t deviceFactoryGetHandler(httpd_req_t *req)
 {
-    int total_len = req->content_len;
-    int cur_len = 0;
+    ESP_LOGI(TAG, "uri: %s", req->uri);
+    setDefaultPreferences();
+    httpd_resp_set_type(req, "application/json");
+    
+    const char *deviceConfig = getDeviceConfig();
+    httpd_resp_sendstr(req, deviceConfig);
+    free((void *)deviceConfig);
+    return ESP_OK;
+}
+
+static esp_err_t deviceConfigGetHandler(httpd_req_t *req)
+{
+    ESP_LOGI(TAG, "uri: %s", req->uri);
+    httpd_resp_set_type(req, "application/json");
+    
+    const char *deviceConfig = getDeviceConfig();
+    httpd_resp_sendstr(req, deviceConfig);
+    free((void *)deviceConfig);
+    return ESP_OK;
+}
+
+static esp_err_t deviceStateGetHandler(httpd_req_t *req)
+{
+    ESP_LOGI(TAG, "uri: %s", req->uri);
+    httpd_resp_set_type(req, "application/json");
+    
+    const char *deviceState = getDeviceState();
+    httpd_resp_sendstr(req, deviceState);
+    free((void *)deviceState);
+    return ESP_OK;
+}
+
+static esp_err_t deviceSetPostHandler(httpd_req_t *req)
+{
+    ESP_LOGI(TAG, "uri: %s", req->uri);
+
     char *buf = ((rest_server_context_t *)(req->user_ctx))->scratch;
-    int received = 0;
-    if (total_len >= SCRATCH_BUFSIZE) {
-        /* Respond with 500 Internal Server Error */
-        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, JSON_Message("content too long"));
+    esp_err_t err = getPostContent(req, buf, SCRATCH_BUFSIZE); 
+
+    if (err == -21002) {
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, JSON_Message("Post content too long"));
         return ESP_FAIL;
     }
-    while (cur_len < total_len) {
-        received = httpd_req_recv(req, buf + cur_len, total_len);
-        if (received <= 0) {
-            /* Respond with 500 Internal Server Error */
-            httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, JSON_Message("Failed to post control value"));
-            return ESP_FAIL;
-        }
-        cur_len += received;
+    else if (err == -21003) {
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, JSON_Message("Failed to post control value"));
+        return ESP_FAIL;
     }
-    buf[total_len] = '\0';
-
-    ESP_LOGI(TAG, "data: %s", buf);
+    
     cJSON *root = cJSON_Parse(buf);
-    int type = cJSON_GetObjectItem(root, "type")->valueint;
-    led_strip_collor_t color = {
-        .red = cJSON_GetObjectItem(root, "red")->valueint,
-        .green = cJSON_GetObjectItem(root, "green")->valueint,
-        .blue = cJSON_GetObjectItem(root, "blue")->valueint
-    };
-    //ESP_LOGI(TAG, "Light control: red = %d, green = %d, blue = %d", color.red, color.green, color.blue);
-    cJSON_Delete(root);
-
-    esp_err_t err;
-    switch (type){
-        case 0:
-            err = esp_event_post(ONBOARDLED_EVENT, ONBOARDLED_EVENT_SETCOLOR, &color, sizeof(color), portMAX_DELAY);
-            if (err != ESP_OK) {
-                ESP_LOGE(TAG, "Failed to post event to \"%s\" #%d: %d (%s)", ONBOARDLED_EVENT, ONBOARDLED_EVENT_SETCOLOR, err, esp_err_to_name(err));
-            };
-            break;
-        case 1:
-            err = eventsCallbackExec(ONBOARDLED_EVENT, ONBOARDLED_EVENT_SETCOLOR, &color);
-            if (err != ESP_OK) {
-                ESP_LOGE(TAG, "Failed to exec callback to \"%s\" #%d: %d (%s)", ONBOARDLED_EVENT, ONBOARDLED_EVENT_SETCOLOR, err, esp_err_to_name(err));
-            };
-            break;
-        case 2:
-            BaseType_t result = eventsDataQueuePost(ONBOARDLED_EVENT, ONBOARDLED_EVENT_SETCOLOR, &color, sizeof(color), 0);
-            if (result != pdTRUE) {
-                ESP_LOGE(TAG, "Failed to post queue event to \"%s\" #%d", ONBOARDLED_EVENT, ONBOARDLED_EVENT_SETCOLOR);
-            };
-            break;
-        default:
+    cJSON *outputState = cJSON_GetObjectItem(root, "output_state");
+    if (outputState != NULL) {
+        uint8_t output = cJSON_GetObjectItem(outputState, "output")->valueint;
+        uint8_t input = cJSON_GetObjectItem(outputState, "input")->valueint;
+        savePort(output, input);
     }
+    cJSON_Delete(root);
+    
     httpd_resp_set_type(req, "application/json");
-    httpd_resp_sendstr(req, JSON_Message("Post control value successfully"));
+    
+    const char *deviceState = getDeviceState();
+    httpd_resp_sendstr(req, deviceState);
+    free((void *)deviceState);
     return ESP_OK;
 }
 
 static esp_err_t systemInfoGetHandler(httpd_req_t *req)
 {
+    ESP_LOGI(TAG, "uri: %s", req->uri);
     httpd_resp_set_type(req, "application/json");
     cJSON *root = cJSON_CreateObject();
-    esp_chip_info_t chip_info;
-    esp_chip_info(&chip_info);
+    esp_chip_info_t chipInfo;
+    esp_chip_info(&chipInfo);
     cJSON_AddStringToObject(root, "version", IDF_VER);
-    cJSON_AddNumberToObject(root, "cores", chip_info.cores);
-    const char *sys_info = cJSON_Print(root);
-    httpd_resp_sendstr(req, sys_info);
-    free((void *)sys_info);
+    cJSON_AddNumberToObject(root, "cores", chipInfo.cores);
+    const char *sysInfo = cJSON_Print(root);
+    httpd_resp_sendstr(req, sysInfo);
+    free((void *)sysInfo);
     cJSON_Delete(root);
     return ESP_OK;
 }
@@ -197,13 +237,37 @@ static httpd_handle_t startWebServer(const char *base_path)
     }
     ESP_LOGI(TAG, "Start HTTP server OK");
 
-    httpd_uri_t boardLightSetPostUri = {
-        .uri = "/api/v1/onboardled/set",
-        .method = HTTP_POST,
-        .handler = onboardLedSetPostHandler,
+    httpd_uri_t deviceFactoryGetUri = {
+        .uri = "/api/v1/device/factory",
+        .method = HTTP_GET,
+        .handler = deviceFactoryGetHandler,
         .user_ctx = rest_context
     };
-    httpd_register_uri_handler(server, &boardLightSetPostUri);
+    httpd_register_uri_handler(server, &deviceFactoryGetUri);
+
+    httpd_uri_t deviceConfigGetUri = {
+        .uri = "/api/v1/device/config",
+        .method = HTTP_GET,
+        .handler = deviceConfigGetHandler,
+        .user_ctx = rest_context
+    };
+    httpd_register_uri_handler(server, &deviceConfigGetUri);
+
+    httpd_uri_t deviceStateGetUri = {
+        .uri = "/api/v1/device/state",
+        .method = HTTP_GET,
+        .handler = deviceStateGetHandler,
+        .user_ctx = rest_context
+    };
+    httpd_register_uri_handler(server, &deviceStateGetUri);
+
+    httpd_uri_t deviceSetPostUri = {
+        .uri = "/api/v1/device/set",
+        .method = HTTP_POST,
+        .handler = deviceSetPostHandler,
+        .user_ctx = rest_context
+    };
+    httpd_register_uri_handler(server, &deviceSetPostUri);
 
     httpd_uri_t systemInfoGetUri = {
         .uri = "/api/v1/system/info",

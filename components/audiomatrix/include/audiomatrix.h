@@ -10,11 +10,16 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
-
+BaseType_t setDefaultPreferences();
 BaseType_t getHaMQTTOutputConfig(uint8_t num, char *topic, size_t topicSize, char *payload, size_t payloadSize);
 BaseType_t getHaMQTTDeviceState(char *topic, size_t topicSize, char *payload, size_t payloadSize);
 BaseType_t getHaMQTTStateTopic(char *topic, size_t topicSize);
 BaseType_t setHaMQTTOutput(char *topic, size_t topicSize, char *payload, size_t payloadSize);
+const char * getDeviceConfig();
+const char * getDeviceState();
+BaseType_t saveConfig(device_t *pdevice);
+BaseType_t savePort(uint8_t numOutput, uint8_t numInput);
+
 void audiomatrixInit(void);
 
 #ifdef __cplusplus

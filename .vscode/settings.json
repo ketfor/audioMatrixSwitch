@@ -3,7 +3,7 @@
     "idf.espIdfPath": "/Users/home/esp/v5.4/esp-idf",
     "idf.pythonInstallPath": "/usr/local/bin/python",
     "idf.openOcdLaunchArgs": [
-        "-c", "set ESP_SEMIHOST_BASEDIR /Users/home/projects/esp32/wifi_web_mqtt/components/home_web_server/front/default"
+        "-c", "set ESP_SEMIHOST_BASEDIR /Users/home/projects/IdeaProjects/audiomtrx.nextjs/out"
     ],
     "idf.openOcdConfigs": [
         "board/esp32s3-builtin.cfg"
@@ -36,7 +36,12 @@
         "ratio": "cpp",
         "nvs_flash.h": "c",
         "home_wifi.h": "c",
-        "nvs_preferences.h": "c"
+        "nvs_preferences.h": "c",
+        "audiomatrix.h": "c",
+        "home_mqtt_client_types.h": "c",
+        "home_web_server_types.h": "c",
+        "audiomatrix_types.h": "c",
+        "*.inc": "c"
     },
     "idf.flashType": "UART"
 }

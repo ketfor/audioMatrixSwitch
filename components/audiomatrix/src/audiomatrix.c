@@ -18,15 +18,17 @@
 #define INAME "in%d"
 #define STATE_TEMPLATE "{{ value_json.state }}"
 #define OUTPUT_STATE_TEMPLATE "{{ value_json.out%d }}"
-
+#define MUTEX_TAKE_TICK_PERIOD 1000 / portTICK_PERIOD_MS
 ESP_EVENT_DEFINE_BASE(AUDIOMATRIX_EVENT);
+
+static SemaphoreHandle_t xMutex;
 
 static device_t device;
 static nvs_handle_t pHandle = 0;
 
 static const char *outputClass[3] = {"disable", "switch", "select"};
 
-void toSnakeCase(char *dstStr, char *srcStr, size_t dstStrSize){
+static void toSnakeCase(char *dstStr, char *srcStr, size_t dstStrSize){
     size_t i = 0;
     while (i < dstStrSize - 1 && srcStr[i] != 0) {
         if (srcStr[i] != ' ') dstStr[i] = tolower(srcStr[i]);
@@ -36,7 +38,7 @@ void toSnakeCase(char *dstStr, char *srcStr, size_t dstStrSize){
     dstStr[i] = 0;
 }
 
-void getConfigurationUrl(char *confUrl, size_t sizeConfUrl) 
+static void getConfigurationUrl(char *confUrl, size_t sizeConfUrl) 
 {
     if (strlen(device.configurationUrl) > 0)
         strlcpy(confUrl, device.configurationUrl, sizeConfUrl);
@@ -47,7 +49,7 @@ void getConfigurationUrl(char *confUrl, size_t sizeConfUrl)
     }
 }
 
-BaseType_t getDeviceId(char *deviceId){
+static BaseType_t getDeviceId(char *deviceId){
     uint8_t mac[6];
 
     BaseType_t ret = getMAC(mac);
@@ -104,8 +106,13 @@ static void outputConfigure(uint8_t num)
     getUInt8Pref(pHandle, key, &(output->inputPort));
 }
 
-BaseType_t deviceConfigure()
+static BaseType_t deviceConfigure()
 {    
+    ESP_LOGI(TAG, "Setting device config...");
+    if(xSemaphoreTake( xMutex, MUTEX_TAKE_TICK_PERIOD ) != pdTRUE) {
+        ESP_LOGW(TAG, "Failed device config");
+        return pdFALSE;
+    }
     nvsOpen(NVSGROUP, NVS_READONLY, &pHandle);
     getStrPref(pHandle, "dev.identifier", device.identifier, sizeof(device.identifier));
     
@@ -129,7 +136,10 @@ BaseType_t deviceConfigure()
         outputConfigure(num);
     }
     nvs_close(pHandle);
+    xSemaphoreGive(xMutex);
+    ESP_LOGI(TAG, "Device config complite");
 
+    ESP_LOGI(TAG, "Posting event \"%s\" #%d:device config changed...", AUDIOMATRIX_EVENT, AUDIOMATRIX_EVENT_CONFIG_CHANGED);
     esp_err_t err = esp_event_post(AUDIOMATRIX_EVENT, AUDIOMATRIX_EVENT_CONFIG_CHANGED, &device, sizeof(device), portMAX_DELAY);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "Failed to post event to \"%s\" #%d: %d (%s)", AUDIOMATRIX_EVENT, AUDIOMATRIX_EVENT_PORT_CHANGED, err, esp_err_to_name(err));
@@ -139,7 +149,12 @@ BaseType_t deviceConfigure()
 
 BaseType_t saveConfig(device_t *pdevice)
 {
+    ESP_LOGI(TAG, "Saving device config...");
     char key[16];
+    if(xSemaphoreTake( xMutex, MUTEX_TAKE_TICK_PERIOD ) != pdTRUE) {
+        ESP_LOGW(TAG, "Failed save device config");
+        return pdFALSE;
+    }
     if(nvsOpen(NVSGROUP, NVS_READWRITE, &pHandle) != pdTRUE)
         return pdFALSE;
     //SaveConfig
@@ -150,13 +165,13 @@ BaseType_t saveConfig(device_t *pdevice)
     setStrPref(pHandle, "dev.hass_topic", pdevice->hassTopic);
     // Inputs
     for(uint8_t num = 0; num < IN_PORTS; num++){
-        output_t *output = &(pdevice->outputs[num]);
+        input_t *input = &(pdevice->inputs[num]);
         snprintf(key, sizeof(key), "in%d.name", (int)num + 1);
-        setStrPref(pHandle, key, output->name);
+        setStrPref(pHandle, key, input->name);
         snprintf(key, sizeof(key), "in%d.sh_name", (int)num + 1);
-        setStrPref(pHandle, key, output->shortName);
+        setStrPref(pHandle, key, input->shortName);
         snprintf(key, sizeof(key), "in%d.ln_name", (int)num + 1);
-        setStrPref(pHandle, key, output->longName);
+        setStrPref(pHandle, key, input->longName);
     }
     // Outputs
     for(uint8_t num = 0; num < OUT_PORTS; num++){
@@ -177,13 +192,15 @@ BaseType_t saveConfig(device_t *pdevice)
 
     }
     nvs_close(pHandle);
+    xSemaphoreGive(xMutex);
 
     deviceConfigure();
     return pdTRUE;
 }
 
-BaseType_t setPort(uint8_t numOutput, uint8_t numInput) 
+static BaseType_t setPort(uint8_t numOutput, uint8_t numInput) 
 {
+    ESP_LOGI(TAG, "Setting input port %d to the out port %d ...", numInput, numOutput);
     output_t *output = &(device.outputs[numOutput]);
     output->inputPort = numInput;
     esp_err_t err = esp_event_post(AUDIOMATRIX_EVENT, AUDIOMATRIX_EVENT_PORT_CHANGED, &output, sizeof(output), portMAX_DELAY);
@@ -196,17 +213,25 @@ BaseType_t setPort(uint8_t numOutput, uint8_t numInput)
 
 BaseType_t savePort(uint8_t numOutput, uint8_t numInput) 
 {
+    ESP_LOGI(TAG, "Saving input port %d to the out port %d ...", numInput, numOutput);
+    if(xSemaphoreTake( xMutex, MUTEX_TAKE_TICK_PERIOD ) != pdTRUE) {
+        ESP_LOGW(TAG, "Failed save input port %d to the out port %d ...", numInput, numOutput);
+        return pdFALSE;
+    }
+
     if(nvsOpen(NVSGROUP, NVS_READWRITE, &pHandle) != pdTRUE)
         return pdFALSE;
     char key[16];
     snprintf(key, sizeof(key), "out%d.input", (int)numOutput + 1);
     setUInt8Pref(pHandle, key, numInput);
     nvs_close(pHandle);
+    xSemaphoreGive(xMutex);
     setPort(numOutput, numInput);
     return pdTRUE;
 }
 
-BaseType_t setDefaultPreferences(){
+BaseType_t setDefaultPreferences() 
+{
     ESP_LOGI(TAG, "Setting default preference of device");
     device_t *pdevice = malloc(sizeof(device_t));
  
@@ -238,8 +263,8 @@ BaseType_t setDefaultPreferences(){
         }
         //Name
         snprintf(output->name, sizeof(output->name), "Out%d", (int)num + 1);
-        snprintf(output->shortName, sizeof(output->shortName), "In%d", (int)num + 1);
-        snprintf(output->longName, sizeof(output->longName), "In%d", (int)num + 1);
+        snprintf(output->shortName, sizeof(output->shortName), "Out%d", (int)num + 1);
+        snprintf(output->longName, sizeof(output->longName), "Out%d", (int)num + 1);
         //InputPort
         if (num == 0) output->inputPort = 1;
         else output->inputPort = 0;
@@ -247,6 +272,71 @@ BaseType_t setDefaultPreferences(){
     saveConfig(pdevice);
     free(pdevice);
     return pdTRUE; 
+}
+
+const char * getDeviceConfig()
+{
+    // payload
+    cJSON *root = cJSON_CreateObject();
+    cJSON *json_device, *json_inputs, *json_input, *json_outputs, *json_output;
+    
+    // Device
+    json_device = cJSON_AddObjectToObject(root, "device");
+    cJSON_AddStringToObject(json_device, "identifier", device.identifier);
+    cJSON_AddStringToObject(json_device, "name", device.name);
+    cJSON_AddStringToObject(json_device, "manufacturer", device.manufacturer);
+    cJSON_AddStringToObject(json_device, "model", device.model);
+    cJSON_AddStringToObject(json_device, "model_id", device.modelId);
+    cJSON_AddStringToObject(json_device, "hw_version", device.hwVersion);
+    cJSON_AddStringToObject(json_device, "sw_version", device.swVersion);
+    char configurationUrl[64];
+    getConfigurationUrl(configurationUrl, sizeof(configurationUrl));
+    cJSON_AddStringToObject(json_device, "configuration_url", configurationUrl);
+    cJSON_AddStringToObject(json_device, "state_topic", device.stateTopic);
+    cJSON_AddStringToObject(json_device, "hass_topic", device.hassTopic);
+
+    //inputs
+    json_inputs = cJSON_AddArrayToObject(root, "inputs");
+    for (uint8_t num = 0; num < IN_PORTS; num++) {
+        input_t *input = &(device.inputs[num]);
+        cJSON_AddItemToArray(json_inputs, json_input = cJSON_CreateObject());
+        cJSON_AddNumberToObject(json_input, "id", input->num);
+        cJSON_AddStringToObject(json_input, "name", input->name);
+        cJSON_AddStringToObject(json_input, "short_name", input->shortName);
+        cJSON_AddStringToObject(json_input, "long_name", input->longName);
+    }    
+
+    // output
+    json_outputs = cJSON_AddArrayToObject(root, "outputs");
+    for (uint8_t num = 0; num < OUT_PORTS; num++) {
+        output_t *output = &(device.outputs[num]);
+        cJSON_AddItemToArray(json_outputs, json_output = cJSON_CreateObject());
+        cJSON_AddNumberToObject(json_output, "id", output->num);
+        cJSON_AddStringToObject(json_output, "name", output->name);
+        cJSON_AddStringToObject(json_output, "short_name", output->shortName);
+        cJSON_AddStringToObject(json_output, "long_name", output->longName);
+        cJSON_AddNumberToObject(json_output, "class", output->class);
+        cJSON_AddNumberToObject(json_output, "input", output->inputPort);
+    }    
+
+    char *jsonConfig = cJSON_Print(root);
+    cJSON_Delete(root);
+    return jsonConfig;
+}
+
+const char * getDeviceState()
+{
+    cJSON *root = cJSON_CreateObject();
+    cJSON_AddStringToObject(root, "state", "online");
+    for(uint8_t num = 0; num < OUT_PORTS; num++){
+        output_t *output = &(device.outputs[num]);
+        char name[6];
+        sprintf(name, ONAME, (int)num + 1);
+        cJSON_AddNumberToObject(root, name, output->inputPort);
+    }
+    char *jsonState = cJSON_Print(root);
+    cJSON_Delete(root);
+    return jsonState;
 }
 
 BaseType_t getHaMQTTStateTopic(char *topic, size_t topicSize)
@@ -354,32 +444,25 @@ BaseType_t getHaMQTTOutputConfig(uint8_t num, char *topic, size_t topicSize, cha
     cJSON_Delete(root);
     return result;
 }
-
+/// @brief 
+/// @param topic 
+/// @param topicSize 
+/// @param payload 
+/// @param payloadSize 
+/// @return pdTRUE if OK else pdFALSE
 BaseType_t getHaMQTTDeviceState(char *topic, size_t topicSize, char *payload, size_t payloadSize)
 {
     
     strlcpy(topic, device.stateTopic, topicSize);
-    
-    // payload
-    cJSON *root = cJSON_CreateObject();
-    cJSON_AddStringToObject(root, "state", "online");
-    for(uint8_t num = 0; num < OUT_PORTS; num++){
-        output_t *output = &(device.outputs[num]);
-        if (output->class != CLASS_DISABLE) {
-            char name[6];
-            sprintf(name, ONAME, (int)num + 1);
-            cJSON_AddNumberToObject(root, name, output->inputPort);
-        }
-    }
+
+    const char * jsonPayload = getDeviceState();
     BaseType_t result = pdTRUE;
-    char *jsonPayload = cJSON_Print(root);
     size_t jsonPayloadSize = strlcpy(payload, jsonPayload, payloadSize);
     if (payloadSize < jsonPayloadSize) {
         ESP_LOGE(TAG, "JSON size (%d) is larger then the payload size (%d)", jsonPayloadSize, payloadSize);
         result = pdFALSE;
     }
-    cJSON_free(jsonPayload);
-    cJSON_Delete(root);
+    free((void*)jsonPayload);
     return result;
 }
 
@@ -415,6 +498,10 @@ void audiomatrixInit(void)
         nvs_close(pHandle);
     }
     */
+
+    static StaticSemaphore_t xSemaphoreBuffer;
+    xMutex = xSemaphoreCreateMutexStatic(&xSemaphoreBuffer);
+
     if(nvsOpen(NVSGROUP, NVS_READONLY, &pHandle) != pdTRUE ) {
         ESP_LOGW(TAG, "Namespace 'device' notfound");
         setDefaultPreferences();
@@ -428,6 +515,17 @@ void audiomatrixInit(void)
         nvs_close(pHandle);
         deviceConfigure();
     }
+
+    led_strip_collor_t color = {
+        .red = 0,
+        .green = 16,
+        .blue = 0
+    };
+    esp_err_t err = esp_event_post(ONBOARDLED_EVENT, ONBOARDLED_EVENT_SETCOLOR, &color, sizeof(color), portMAX_DELAY);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to post event to \"%s\" #%d: %d (%s)", ONBOARDLED_EVENT, ONBOARDLED_EVENT_SETCOLOR, err, esp_err_to_name(err));
+    };
+    
     ESP_LOGI(TAG, "Audiomatrix init finished.");
 }
 

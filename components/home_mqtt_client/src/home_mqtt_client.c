@@ -9,38 +9,63 @@
 
 #define TAG "home_mqtt_client"
 
-static void subscribeState(esp_mqtt_client_handle_t client)
+#define PUBLISH_STATE_BIT       BIT0
+#define PUBLISH_CONFIG_BIT      BIT1
+#define SUBSCRIBE_STATE_BIT     BIT2
+static EventGroupHandle_t xEventGroup;
+
+static esp_mqtt_client_handle_t client = NULL;
+
+static void subscribeState()
 {
     char topic[64];
     getHaMQTTStateTopic(topic, sizeof(topic));
     strlcat(topic, "/set/#", sizeof(topic));
+    ESP_LOGI(TAG, "Subscribe to a topic \"%s\"", topic);
     esp_mqtt_client_subscribe(client, topic, 0);
 }
 
-static void publishState(esp_mqtt_client_handle_t client)
+static void publishState()
 {
     char topic[64], payload[1024];
     if(getHaMQTTDeviceState(topic, sizeof(topic), payload, sizeof(payload)) == pdTRUE){
+        ESP_LOGI(TAG, "Publish a topic \"%s\"", topic);
         esp_mqtt_client_publish(client, topic, payload, 0, 0, 1);
     }
 }
 
-static void publishConfig(esp_mqtt_client_handle_t client)
+static void publishConfig()
 {
     char topic[64], payload[1024];
     for (uint8_t num = 0; num < OUT_PORTS; num++) {
         if(getHaMQTTOutputConfig(num, topic, sizeof(topic), payload, sizeof(payload)) == pdTRUE){
+            ESP_LOGI(TAG, "Publish a topic \"%s\"", topic);
             esp_mqtt_client_publish(client, topic, payload, 0, 0, 1);
         }
     }
     publishState(client);
 }
 
+static void audiomatrixEventTask(void *pvParameters) 
+{
+    while (1) {
+        EventBits_t bits = xEventGroupWaitBits(xEventGroup,
+            SUBSCRIBE_STATE_BIT | PUBLISH_STATE_BIT | PUBLISH_CONFIG_BIT,
+            pdTRUE,
+            pdFALSE,
+            portMAX_DELAY);
+            
+        if (bits & SUBSCRIBE_STATE_BIT) subscribeState();
+        if (bits & PUBLISH_STATE_BIT) publishState();
+        if (bits & PUBLISH_CONFIG_BIT) publishConfig();
+        //setHaMQTTOutput(event->topic, event->topic_len, event->data, event->data_len);
+    }
+}
+
 static void audiomatrixEventHandler(void* arg, esp_event_base_t event_base,
     int32_t event_id, void* event_data)
 {
-    esp_mqtt_client_handle_t* client = (esp_mqtt_client_handle_t*) arg;
-    if (*client == NULL) {
+    if (client == NULL) {
         ESP_LOGW(TAG, "audiomatrixEventHandler: No MQTT client");
         return;
     }
@@ -48,10 +73,10 @@ static void audiomatrixEventHandler(void* arg, esp_event_base_t event_base,
     esp_mqtt_event_handle_t event = event_data;
     switch ((audiomatrix_event_t)event_id) {
         case AUDIOMATRIX_EVENT_PORT_CHANGED:
-            publishState(*client);
+            xEventGroupSetBits(xEventGroup, PUBLISH_STATE_BIT);
             break;
         case AUDIOMATRIX_EVENT_CONFIG_CHANGED:
-            publishConfig(*client);
+            xEventGroupSetBits(xEventGroup, PUBLISH_CONFIG_BIT);
             break;
         default:
             ESP_LOGI(TAG, "Other event id:%d", event->event_id);
@@ -63,12 +88,10 @@ static void mqttEventHandler(void *handler_args, esp_event_base_t base, int32_t 
 {
     ESP_LOGD(TAG, "Event dispatched from event loop base=%s, event_id=%" PRIi32 "", base, event_id);
     esp_mqtt_event_handle_t event = event_data;
-    esp_mqtt_client_handle_t client = event->client;
     switch ((esp_mqtt_event_id_t)event_id) {
     case MQTT_EVENT_CONNECTED:
         ESP_LOGI(TAG, "MQTT_EVENT_CONNECTED");
-        subscribeState(client);
-        publishConfig(client);
+        xEventGroupSetBits(xEventGroup, SUBSCRIBE_STATE_BIT|PUBLISH_CONFIG_BIT);
         break;
     case MQTT_EVENT_DISCONNECTED:
         ESP_LOGI(TAG, "MQTT_EVENT_DISCONNECTED");
@@ -85,8 +108,6 @@ static void mqttEventHandler(void *handler_args, esp_event_base_t base, int32_t 
     case MQTT_EVENT_DATA:
         ESP_LOGI(TAG, "MQTT_EVENT_DATA");
         setHaMQTTOutput(event->topic, event->topic_len, event->data, event->data_len);
-        //printf("TOPIC=%.*s\r\n", event->topic_len, event->topic);
-        //printf("DATA=%.*s\r\n", event->data_len, event->data);
         break;
     case MQTT_EVENT_ERROR:
         ESP_LOGI(TAG, "MQTT_EVENT_ERROR");
@@ -140,28 +161,37 @@ static esp_err_t stopMqttClient(esp_mqtt_client_handle_t client)
 static void connectHandler(void* arg, esp_event_base_t event_base,
     int32_t event_id, void* event_data)
 {
-    esp_mqtt_client_handle_t* client = (esp_mqtt_client_handle_t*) arg;
-    if (*client == NULL) {
-        *client = startMqttClient();
+    if (client == NULL) {
+        client = startMqttClient();
     }
 }
 
 static void disconnectHandler(void* arg, esp_event_base_t event_base,
     int32_t event_id, void* event_data)
 {
-    esp_mqtt_client_handle_t* client = (esp_mqtt_client_handle_t*) arg;
-    if (*client) {
-        if (stopMqttClient(*client) == ESP_OK) *client = NULL;
+    if (client) {
+        if (stopMqttClient(client) == ESP_OK) client = NULL;
     }
 }
 
+#define STACK_SIZE 5120 
+
 void mqttClientInit(void)
 {
-    static esp_mqtt_client_handle_t client = NULL;
-    //client = startMqttClient();
-    ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, &connectHandler, &client));
-    ESP_ERROR_CHECK(esp_event_handler_register(WIFI_EVENT, WIFI_EVENT_STA_DISCONNECTED, &disconnectHandler, &client));
-    ESP_ERROR_CHECK(esp_event_handler_register(AUDIOMATRIX_EVENT, AUDIOMATRIX_EVENT_PORT_CHANGED, &audiomatrixEventHandler, &client));
-    ESP_ERROR_CHECK(esp_event_handler_register(AUDIOMATRIX_EVENT, AUDIOMATRIX_EVENT_CONFIG_CHANGED, &audiomatrixEventHandler, &client));
+    static StaticEventGroup_t xEventGroupBuffer;
+    xEventGroup = xEventGroupCreateStatic(&xEventGroupBuffer);
+
+    static StaticTask_t xTaskBuffer;
+    static StackType_t xStack[STACK_SIZE];
+    TaskHandle_t xHandle = xTaskCreateStatic(audiomatrixEventTask, "audiomatrixEventTask", STACK_SIZE, NULL, 5, xStack, &xTaskBuffer);
+    if (xHandle == NULL){
+        ESP_LOGE(TAG, "Task \"audiomatrixEventTask\" not created");
+    }
+
+    ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, &connectHandler, NULL));
+    ESP_ERROR_CHECK(esp_event_handler_register(WIFI_EVENT, WIFI_EVENT_STA_DISCONNECTED, &disconnectHandler, NULL));
+    ESP_ERROR_CHECK(esp_event_handler_register(AUDIOMATRIX_EVENT, AUDIOMATRIX_EVENT_PORT_CHANGED, &audiomatrixEventHandler, NULL));
+    ESP_ERROR_CHECK(esp_event_handler_register(AUDIOMATRIX_EVENT, AUDIOMATRIX_EVENT_CONFIG_CHANGED, &audiomatrixEventHandler, NULL));
+
     ESP_LOGI(TAG, "MQTT init finished.");
 }
