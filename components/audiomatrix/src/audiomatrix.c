@@ -130,6 +130,8 @@ static BaseType_t deviceConfigure()
     strlcpy(device.hwVersion, CONFIG_AM_DEVICE_HW, sizeof(device.hwVersion));
     strlcpy(device.swVersion, CONFIG_AM_DEVICE_SW, sizeof(device.swVersion));
     //
+    getStrPref(pHandle, "dev.conf_url", device.configurationUrl, sizeof(device.configurationUrl));
+    //
     getStrPref(pHandle, "dev.state_topic", device.stateTopic, sizeof(device.stateTopic));
     getStrPref(pHandle, "dev.hass_topic", device.hassTopic, sizeof(device.hassTopic));
   
@@ -166,7 +168,7 @@ BaseType_t saveConfig(device_t *pdevice)
     if (strlen(pdevice->identifier) > 0)
         setStrPref(pHandle, "dev.identifier", pdevice->identifier);
     setStrPref(pHandle, "dev.name", pdevice->name);
-    setStrPref(pHandle, "dev.conf_url", "");
+    setStrPref(pHandle, "dev.conf_url", pdevice->configurationUrl);
     setStrPref(pHandle, "dev.state_topic", pdevice->stateTopic);
     setStrPref(pHandle, "dev.hass_topic", pdevice->hassTopic);
     // Inputs
@@ -403,8 +405,8 @@ BaseType_t getHaMQTTOutputConfig(uint8_t num, uint8_t class, char *topic, size_t
     cJSON_AddStringToObject(root, "command_topic", output->commandTopic);
     cJSON_AddStringToObject(root, "state_topic", device.stateTopic);
     if (output->class == CLASS_SWITCH) {
-        cJSON_AddNumberToObject(root, "payload_off", 0);
-        cJSON_AddNumberToObject(root, "payload_on", 1);
+        cJSON_AddNumberToObject(root, "payload_off", 1);
+        cJSON_AddNumberToObject(root, "payload_on", 0);
         char stateTemplate[24];
         snprintf(stateTemplate, sizeof(stateTemplate), OUTPUT_STATE_TEMPLATE, (int)num + 1);
         cJSON_AddStringToObject(root, "value_template", stateTemplate);
