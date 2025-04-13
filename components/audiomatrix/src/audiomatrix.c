@@ -49,6 +49,11 @@ static void getConfigurationUrl(char *confUrl, size_t sizeConfUrl)
     }
 }
 
+device_t * getDevice()
+{
+    return &device; 
+}
+
 static BaseType_t getDeviceId(char *deviceId){
     uint8_t mac[6];
 
@@ -158,7 +163,8 @@ BaseType_t saveConfig(device_t *pdevice)
     if(nvsOpen(NVSGROUP, NVS_READWRITE, &pHandle) != pdTRUE)
         return pdFALSE;
     //SaveConfig
-    setStrPref(pHandle, "dev.identifier", pdevice->identifier);
+    if (strlen(pdevice->identifier) > 0)
+        setStrPref(pHandle, "dev.identifier", pdevice->identifier);
     setStrPref(pHandle, "dev.name", pdevice->name);
     setStrPref(pHandle, "dev.conf_url", "");
     setStrPref(pHandle, "dev.state_topic", pdevice->stateTopic);
@@ -291,7 +297,7 @@ const char * getDeviceConfig()
     cJSON_AddStringToObject(json_device, "sw_version", device.swVersion);
     char configurationUrl[64];
     getConfigurationUrl(configurationUrl, sizeof(configurationUrl));
-    cJSON_AddStringToObject(json_device, "configuration_url", configurationUrl);
+    cJSON_AddStringToObject(json_device, "conf_url", configurationUrl);
     cJSON_AddStringToObject(json_device, "state_topic", device.stateTopic);
     cJSON_AddStringToObject(json_device, "hass_topic", device.hassTopic);
 
@@ -311,11 +317,11 @@ const char * getDeviceConfig()
     for (uint8_t num = 0; num < OUT_PORTS; num++) {
         output_t *output = &(device.outputs[num]);
         cJSON_AddItemToArray(json_outputs, json_output = cJSON_CreateObject());
+        cJSON_AddNumberToObject(json_output, "class", output->class);
         cJSON_AddNumberToObject(json_output, "id", output->num);
         cJSON_AddStringToObject(json_output, "name", output->name);
         cJSON_AddStringToObject(json_output, "short_name", output->shortName);
         cJSON_AddStringToObject(json_output, "long_name", output->longName);
-        cJSON_AddNumberToObject(json_output, "class", output->class);
         cJSON_AddNumberToObject(json_output, "input", output->inputPort);
     }    
 
@@ -345,25 +351,29 @@ BaseType_t getHaMQTTStateTopic(char *topic, size_t topicSize)
     return pdTRUE;
 }
 
-BaseType_t getHaMQTTOutputConfig(uint8_t num, char *topic, size_t topicSize, char *payload, size_t payloadSize)
+BaseType_t getHaMQTTOutputConfig(uint8_t num, uint8_t class, char *topic, size_t topicSize, char *payload, size_t payloadSize)
 {
 
     output_t *output = &(device.outputs[num]);
-    if (output->class == CLASS_DISABLE)
-        return pdFALSE;
 
     // topic
     strlcpy(topic, device.hassTopic, topicSize);
     strlcat(topic, "/", topicSize);
-    strlcat(topic, outputClass[output->class], topicSize);
+    strlcat(topic, outputClass[class], topicSize);
     strlcat(topic, "/", topicSize);
     strlcat(topic, device.identifier, topicSize);
     strlcat(topic, "/", topicSize);
-    strlcat(topic, outputClass[output->class], topicSize);
+    strlcat(topic, outputClass[class], topicSize);
     strlcat(topic, "_", topicSize);
     strlcat(topic, output->formatedName, topicSize);
     strlcat(topic, "/config", topicSize);
     
+    if (output->class != class){
+        strlcpy(payload, "", payloadSize);
+        return pdTRUE;
+    }
+    //else strlcat(topic, "/config", topicSize);
+
     // payload
     cJSON *root = cJSON_CreateObject();
     cJSON *json_availabilities, *json_availability, *json_device, *json_device_identifiers, *json_options;

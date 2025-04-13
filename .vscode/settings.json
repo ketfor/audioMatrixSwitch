@@ -41,7 +41,8 @@
         "home_mqtt_client_types.h": "c",
         "home_web_server_types.h": "c",
         "audiomatrix_types.h": "c",
-        "*.inc": "c"
+        "*.inc": "c",
+        "freertos.h": "c"
     },
     "idf.flashType": "UART"
 }

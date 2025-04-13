@@ -161,6 +161,25 @@ static esp_err_t deviceStateGetHandler(httpd_req_t *req)
     return ESP_OK;
 }
 
+static void jsonStrValue(cJSON *json, char *out, size_t outSize, char *param, char *def)
+{
+    if (cJSON_HasObjectItem(json, param)) {
+        strlcpy(out, cJSON_GetObjectItem(json, param)->valuestring, outSize);
+    }
+    else {
+        strlcpy(out, def, outSize);
+    }
+}
+static void jsonNumberValue(cJSON *json, uint8_t *out, char *param, int def)
+{
+    if (cJSON_HasObjectItem(json, param)) {
+        *out = cJSON_GetObjectItem(json, param)->valueint;
+    }
+    else {
+        *out = def;
+    }
+}
+
 static esp_err_t deviceSetPostHandler(httpd_req_t *req)
 {
     ESP_LOGI(TAG, "uri: %s", req->uri);
@@ -178,11 +197,54 @@ static esp_err_t deviceSetPostHandler(httpd_req_t *req)
     }
     
     cJSON *root = cJSON_Parse(buf);
-    cJSON *outputState = cJSON_GetObjectItem(root, "output_state");
-    if (outputState != NULL) {
-        uint8_t output = cJSON_GetObjectItem(outputState, "output")->valueint;
-        uint8_t input = cJSON_GetObjectItem(outputState, "input")->valueint;
+    if (cJSON_HasObjectItem(root, "output_state")) {
+        cJSON *jsonOutputState = cJSON_GetObjectItem(root, "output_state");
+        uint8_t output = cJSON_GetObjectItem(jsonOutputState, "output")->valueint;
+        uint8_t input = cJSON_GetObjectItem(jsonOutputState, "input")->valueint;
         savePort(output, input);
+    }
+    else if (cJSON_HasObjectItem(root, "device")) {
+        cJSON *jsonDevice = cJSON_GetObjectItem(root, "device");
+        device_t pdevice;
+        device_t *device = getDevice();
+        
+        strlcpy(pdevice.identifier, "", sizeof(pdevice.identifier));
+        jsonStrValue(jsonDevice, pdevice.name, sizeof(pdevice.name), "name", device->name);
+        jsonStrValue(jsonDevice, pdevice.configurationUrl, sizeof(pdevice.configurationUrl), "conf_url", device->configurationUrl);
+        jsonStrValue(jsonDevice, pdevice.stateTopic, sizeof(pdevice.stateTopic), "state_topic", device->stateTopic);
+        jsonStrValue(jsonDevice, pdevice.hassTopic, sizeof(pdevice.hassTopic), "hass_topic", device->hassTopic);
+        
+        if (cJSON_HasObjectItem(root, "inputs")) {
+            cJSON *jsonInputs = cJSON_GetObjectItem(root, "inputs");
+            for (uint8_t num = 0; num < IN_PORTS; num++) {
+                cJSON *jsonInput = cJSON_GetArrayItem(jsonInputs, num);
+                if (jsonInput != NULL) {
+                    input_t *pinput = &(pdevice.inputs[num]);
+                    input_t *input = &(device->inputs[num]);
+                    jsonStrValue(jsonInput, pinput->name, sizeof(pinput->name), "name", input->name);
+                    jsonStrValue(jsonInput, pinput->shortName, sizeof(pinput->shortName), "short_name", input->shortName);
+                    jsonStrValue(jsonInput, pinput->longName, sizeof(pinput->longName), "long_name", input->longName);
+                }
+            }
+        }
+        if (cJSON_HasObjectItem(root, "outputs")) {
+            cJSON *jsonOutputs = cJSON_GetObjectItem(root, "outputs");
+            for (uint8_t num = 0; num < OUT_PORTS; num++) {
+                cJSON *jsonOutput = cJSON_GetArrayItem(jsonOutputs, num);
+                if (jsonOutput != NULL) {
+                    output_t *poutput = &(pdevice.outputs[num]);
+                    output_t *output = &(device->outputs[num]);
+                    jsonNumberValue(jsonOutput, &(poutput->class), "class", output->class);
+                    output->class = cJSON_GetObjectItem(jsonOutput, "class")->valueint;
+                    output->num = num;
+                    jsonStrValue(jsonOutput, poutput->name, sizeof(poutput->name), "name", output->name);
+                    jsonStrValue(jsonOutput, poutput->shortName, sizeof(poutput->shortName), "short_name", output->shortName);
+                    jsonStrValue(jsonOutput, poutput->longName, sizeof(poutput->longName), "long_name", output->longName);
+                    jsonNumberValue(jsonOutput, &(poutput->inputPort), "input", output->inputPort);
+                }
+            }
+        }
+        saveConfig(&pdevice);
     }
     cJSON_Delete(root);
     
@@ -227,6 +289,7 @@ static httpd_handle_t startWebServer(const char *base_path)
     strlcpy(rest_context->base_path, base_path, sizeof(rest_context->base_path));
     
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
+    config.stack_size = 8192;
     config.uri_match_fn = httpd_uri_match_wildcard;
 
     ESP_LOGI(TAG, "Starting HTTP Server");

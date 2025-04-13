@@ -38,7 +38,11 @@ static void publishConfig()
 {
     char topic[64], payload[1024];
     for (uint8_t num = 0; num < OUT_PORTS; num++) {
-        if(getHaMQTTOutputConfig(num, topic, sizeof(topic), payload, sizeof(payload)) == pdTRUE){
+        if(getHaMQTTOutputConfig(num, CLASS_SWITCH, topic, sizeof(topic), payload, sizeof(payload)) == pdTRUE){
+            ESP_LOGI(TAG, "Publish a topic \"%s\"", topic);
+            esp_mqtt_client_publish(client, topic, payload, 0, 0, 1);
+        }
+        if(getHaMQTTOutputConfig(num, CLASS_SELECT, topic, sizeof(topic), payload, sizeof(payload)) == pdTRUE){
             ESP_LOGI(TAG, "Publish a topic \"%s\"", topic);
             esp_mqtt_client_publish(client, topic, payload, 0, 0, 1);
         }
