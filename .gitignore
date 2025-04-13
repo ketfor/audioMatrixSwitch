@@ -1,0 +1,5 @@
+build/
+managed_components/
+components/home_web_server/front/
+sdkconfig
+sdkconfig.old
