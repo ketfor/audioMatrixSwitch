@@ -42,7 +42,10 @@
         "home_web_server_types.h": "c",
         "audiomatrix_types.h": "c",
         "*.inc": "c",
-        "freertos.h": "c"
+        "freertos.h": "c",
+        "home_wifi_types.h": "c",
+        "audiomatrix_event_types.h": "c",
+        "home_mqtt_client_event_types.h": "c"
     },
     "idf.flashType": "UART"
 }

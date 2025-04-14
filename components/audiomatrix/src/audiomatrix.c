@@ -28,7 +28,7 @@ static nvs_handle_t pHandle = 0;
 
 static const char *outputClass[3] = {"disable", "switch", "select"};
 
-static void toSnakeCase(char *dstStr, char *srcStr, size_t dstStrSize){
+static void toSnakeCase(char *dstStr, const char *srcStr, size_t dstStrSize){
     size_t i = 0;
     while (i < dstStrSize - 1 && srcStr[i] != 0) {
         if (srcStr[i] != ' ') dstStr[i] = tolower(srcStr[i]);
@@ -540,8 +540,3 @@ void audiomatrixInit(void)
     
     ESP_LOGI(TAG, "Audiomatrix init finished.");
 }
-
-
-
-
-

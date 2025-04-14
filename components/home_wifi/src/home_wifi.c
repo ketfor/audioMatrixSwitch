@@ -7,6 +7,7 @@
 #include "lwip/err.h"
 #include "lwip/sys.h"
 #include "mdns.h"
+#include "cJSON.h"
 #include "home_wifi.h"
 
 /* The examples use WiFi configuration that you can set via project configuration menu
@@ -50,6 +51,7 @@
 
 #define TAG "home_wifi_station"
 
+static wifiConfig_t wifiConfig;
 static int s_retry_num = 0;
 static esp_ip4_addr_t iPv4;
 
@@ -109,6 +111,31 @@ BaseType_t getMAC(uint8_t *mac){
 
 BaseType_t getIPv4Str(char * iPv4Str){
     snprintf(iPv4Str, 16, IPSTR, IP2STR(&iPv4));
+    return pdTRUE;
+}
+
+wifiConfig_t * getWifiConfig()
+{
+    return &wifiConfig;
+}
+
+const char * getJsonWifiConfig()
+{
+    // payload
+    cJSON *root = cJSON_CreateObject();
+    
+    cJSON_AddNumberToObject(root, "type", wifiConfig.type);
+    cJSON_AddStringToObject(root, "ip", wifiConfig.ip);
+    cJSON_AddStringToObject(root, "ssid", wifiConfig.ssid); 
+    cJSON_AddStringToObject(root, "password", wifiConfig.password); 
+
+    char *jsonConfig = cJSON_Print(root);
+    cJSON_Delete(root);
+    return jsonConfig;
+}
+
+BaseType_t saveWifiConfig(wifiConfig_t *pMqttConfig)
+{
     return pdTRUE;
 }
 

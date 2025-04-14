@@ -3,6 +3,7 @@
 #include "mqtt_client.h"
 #include "esp_event.h"
 #include "esp_log.h"
+#include "cJSON.h"
 #include "home_mqtt_client.h"
 #include "events_types.h"
 #include "audiomatrix.h"
@@ -14,6 +15,7 @@
 #define SUBSCRIBE_STATE_BIT     BIT2
 static EventGroupHandle_t xEventGroup;
 
+static mqttConfig_t mqttConfig;
 static esp_mqtt_client_handle_t client = NULL;
 
 static void subscribeState()
@@ -176,6 +178,31 @@ static void disconnectHandler(void* arg, esp_event_base_t event_base,
     if (client) {
         if (stopMqttClient(client) == ESP_OK) client = NULL;
     }
+}
+
+mqttConfig_t * getMqttConfig()
+{
+    return &mqttConfig;
+}
+const char * getJsonMqttConfig()
+{
+    // payload
+    cJSON *root = cJSON_CreateObject();
+
+    cJSON_AddStringToObject(root, "protocol", mqttConfig.protocol);
+    cJSON_AddStringToObject(root, "host", mqttConfig.host);
+    cJSON_AddNumberToObject(root, "port", mqttConfig.port);
+    cJSON_AddStringToObject(root, "username", mqttConfig.username); 
+    cJSON_AddStringToObject(root, "password", mqttConfig.password); 
+
+    char *jsonConfig = cJSON_Print(root);
+    cJSON_Delete(root);
+    return jsonConfig;
+}
+
+BaseType_t saveMqttConfig(mqttConfig_t *pMqttConfig)
+{
+    return pdTRUE;
 }
 
 #define STACK_SIZE 5120 

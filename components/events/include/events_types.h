@@ -6,6 +6,7 @@
 #include "esp_netif_types.h"
 #include "onboardled_types.h"
 #include "home_web_server_types.h"
+#include "home_wifi_types.h"
 #include "home_mqtt_client_types.h"
 #include "audiomatrix_event_types.h"
 

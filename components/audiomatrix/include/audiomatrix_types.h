@@ -2,8 +2,7 @@
 #ifndef __AUDIOMATRIX_TYPES_H__
 #define __AUDIOMATRIX_TYPES_H__
 
-#include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
+#include <stdint.h>
 #include "audiomatrix_event_types.h"
 
 #ifdef __cplusplus

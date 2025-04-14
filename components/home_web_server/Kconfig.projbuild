@@ -19,7 +19,7 @@ menu "Web server configuration"
                 Deploy website to host.
                 It is recommended to choose this mode during developing.
         config WEB_DEPLOY_SD
-            depends on IDF_TARGET_ESP32
+            depends on IDF_TARGET_ESP32S3
             bool "Deploy website to SD card"
             help
                 Deploy website to SD card.

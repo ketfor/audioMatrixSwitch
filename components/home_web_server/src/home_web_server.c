@@ -12,8 +12,19 @@
 #include "home_web_server.h"
 #include "events_types.h"
 #include "audiomatrix.h"
+#include "home_wifi.h"
+#include "home_mqtt_client.h"
 
 #define TAG "home_web_server"
+
+static void strcpyToChar(char *dstStr, const char *srcStr, size_t dstStrSize, char ch){
+    size_t i = 0;
+    while (i < dstStrSize - 1 && srcStr[i] != 0 && srcStr[i] != ch) {
+        dstStr[i] = srcStr[i];
+        i++;
+    }
+    dstStr[i] = 0;
+}
 
 /* Set HTTP response content type according to file extension */
 static esp_err_t set_content_type_from_file(httpd_req_t *req, const char *filepath)
@@ -66,6 +77,36 @@ static esp_err_t getPostContent(httpd_req_t *req, char *buf, size_t bufSize)
     return ESP_OK;
 }
 
+static void jsonStrValue(cJSON *json, char *out, size_t outSize, char *param, char *def)
+{
+    if (cJSON_HasObjectItem(json, param)) {
+        strlcpy(out, cJSON_GetObjectItem(json, param)->valuestring, outSize);
+    }
+    else {
+        strlcpy(out, def, outSize);
+    }
+}
+
+static void jsonUInt8Value(cJSON *json, uint8_t *out, char *param, int def)
+{
+    if (cJSON_HasObjectItem(json, param)) {
+        *out = cJSON_GetObjectItem(json, param)->valueint;
+    }
+    else {
+        *out = def;
+    }
+}
+
+static void jsonUInt16Value(cJSON *json, uint16_t *out, char *param, int def)
+{
+    if (cJSON_HasObjectItem(json, param)) {
+        *out = cJSON_GetObjectItem(json, param)->valueint;
+    }
+    else {
+        *out = def;
+    }
+}
+
 /* Send HTTP response with the contents of the requested file */
 static esp_err_t restCommonGetHandler(httpd_req_t *req)
 {
@@ -76,7 +117,9 @@ static esp_err_t restCommonGetHandler(httpd_req_t *req)
 
     ESP_LOGI(TAG, "uri: %s", req->uri);
     if (strcmp(req->uri, "/matrix") == 0 ||
-            strcmp(req->uri, "/config") == 0) 
+            strcmp(req->uri, "/config") == 0 ||
+            strcmp(req->uri, "/wifi") == 0 ||
+            strcmp(req->uri, "/mqtt") == 0) 
     {
         strlcat(filepath, req->uri, sizeof(filepath));
         strlcat(filepath, ".html", sizeof(filepath));
@@ -84,8 +127,11 @@ static esp_err_t restCommonGetHandler(httpd_req_t *req)
     else if (req->uri[strlen(req->uri) - 1] == '/') {
         strlcat(filepath, "/index.html", sizeof(filepath));
     } else {
-        strlcat(filepath, req->uri, sizeof(filepath));
+        char file[FILE_PATH_MAX];
+        strcpyToChar(file, req->uri, sizeof(file), '?');
+        strlcat(filepath, file, sizeof(filepath));
     }
+    ESP_LOGI(TAG, "Filepath is %s", filepath);
     int fd = open(filepath, O_RDONLY, 0);
     if (fd == -1) {
         ESP_LOGW(TAG, "Failed to open file : %s", filepath);
@@ -127,6 +173,17 @@ static esp_err_t restCommonGetHandler(httpd_req_t *req)
     return ESP_OK;
 }
 
+static esp_err_t deviceStateGetHandler(httpd_req_t *req)
+{
+    ESP_LOGI(TAG, "uri: %s", req->uri);
+    httpd_resp_set_type(req, "application/json");
+    
+    const char *deviceState = getDeviceState();
+    httpd_resp_sendstr(req, deviceState);
+    free((void *)deviceState);
+    return ESP_OK;
+}
+
 static esp_err_t deviceFactoryGetHandler(httpd_req_t *req)
 {
     ESP_LOGI(TAG, "uri: %s", req->uri);
@@ -148,36 +205,6 @@ static esp_err_t deviceConfigGetHandler(httpd_req_t *req)
     httpd_resp_sendstr(req, deviceConfig);
     free((void *)deviceConfig);
     return ESP_OK;
-}
-
-static esp_err_t deviceStateGetHandler(httpd_req_t *req)
-{
-    ESP_LOGI(TAG, "uri: %s", req->uri);
-    httpd_resp_set_type(req, "application/json");
-    
-    const char *deviceState = getDeviceState();
-    httpd_resp_sendstr(req, deviceState);
-    free((void *)deviceState);
-    return ESP_OK;
-}
-
-static void jsonStrValue(cJSON *json, char *out, size_t outSize, char *param, char *def)
-{
-    if (cJSON_HasObjectItem(json, param)) {
-        strlcpy(out, cJSON_GetObjectItem(json, param)->valuestring, outSize);
-    }
-    else {
-        strlcpy(out, def, outSize);
-    }
-}
-static void jsonNumberValue(cJSON *json, uint8_t *out, char *param, int def)
-{
-    if (cJSON_HasObjectItem(json, param)) {
-        *out = cJSON_GetObjectItem(json, param)->valueint;
-    }
-    else {
-        *out = def;
-    }
 }
 
 static esp_err_t deviceSetPostHandler(httpd_req_t *req)
@@ -234,13 +261,13 @@ static esp_err_t deviceSetPostHandler(httpd_req_t *req)
                 if (jsonOutput != NULL) {
                     output_t *poutput = &(pdevice.outputs[num]);
                     output_t *output = &(device->outputs[num]);
-                    jsonNumberValue(jsonOutput, &(poutput->class), "class", output->class);
+                    jsonUInt8Value(jsonOutput, &(poutput->class), "class", output->class);
                     output->class = cJSON_GetObjectItem(jsonOutput, "class")->valueint;
                     output->num = num;
                     jsonStrValue(jsonOutput, poutput->name, sizeof(poutput->name), "name", output->name);
                     jsonStrValue(jsonOutput, poutput->shortName, sizeof(poutput->shortName), "short_name", output->shortName);
                     jsonStrValue(jsonOutput, poutput->longName, sizeof(poutput->longName), "long_name", output->longName);
-                    jsonNumberValue(jsonOutput, &(poutput->inputPort), "input", output->inputPort);
+                    jsonUInt8Value(jsonOutput, &(poutput->inputPort), "input", output->inputPort);
                 }
             }
         }
@@ -253,6 +280,105 @@ static esp_err_t deviceSetPostHandler(httpd_req_t *req)
     const char *deviceState = getDeviceState();
     httpd_resp_sendstr(req, deviceState);
     free((void *)deviceState);
+    return ESP_OK;
+}
+
+static esp_err_t wifiConfigGetHandler(httpd_req_t *req)
+{
+    ESP_LOGI(TAG, "uri: %s", req->uri);
+    httpd_resp_set_type(req, "application/json");
+    
+    const char *jsonWifiConfig = getJsonWifiConfig();
+    httpd_resp_sendstr(req, jsonWifiConfig);
+    free((void *)jsonWifiConfig);
+    return ESP_OK;
+}
+
+static esp_err_t wifiSetPostHandler(httpd_req_t *req)
+{
+    ESP_LOGI(TAG, "uri: %s", req->uri);
+
+    char *buf = ((rest_server_context_t *)(req->user_ctx))->scratch;
+    esp_err_t err = getPostContent(req, buf, SCRATCH_BUFSIZE); 
+
+    if (err == -21002) {
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, JSON_Message("Post content too long"));
+        return ESP_FAIL;
+    }
+    else if (err == -21003) {
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, JSON_Message("Failed to post control value"));
+        return ESP_FAIL;
+    }
+    
+    cJSON *root = cJSON_Parse(buf);
+    if (cJSON_HasObjectItem(root, "wifi_config")) {
+        cJSON *jsonWifiConfig = cJSON_GetObjectItem(root, "wifi_config");
+        wifiConfig_t pWifiConfig;
+        wifiConfig_t *wifiConfig = getWifiConfig();
+        
+        jsonUInt8Value(jsonWifiConfig, &(pWifiConfig.type), "type", wifiConfig->type);
+        jsonStrValue(jsonWifiConfig, pWifiConfig.ip, sizeof(pWifiConfig.ip), "ip", wifiConfig->ip);
+        jsonStrValue(jsonWifiConfig, pWifiConfig.ssid, sizeof(pWifiConfig.ssid), "ssid", wifiConfig->ssid);
+        jsonStrValue(jsonWifiConfig, pWifiConfig.password, sizeof(pWifiConfig.password), "password", wifiConfig->password);
+        
+        saveWifiConfig(&pWifiConfig);
+    }
+    cJSON_Delete(root);
+    
+    httpd_resp_set_type(req, "application/json");
+    
+    const char *jsonNWifiConfig = getJsonWifiConfig();
+    httpd_resp_sendstr(req, jsonNWifiConfig);
+    free((void *)jsonNWifiConfig);
+    return ESP_OK;
+}
+
+static esp_err_t mqttConfigGetHandler(httpd_req_t *req)
+{
+    ESP_LOGI(TAG, "uri: %s", req->uri);
+    httpd_resp_set_type(req, "application/json");
+    
+    const char *jsonMqttConfig = getJsonMqttConfig();
+    httpd_resp_sendstr(req, jsonMqttConfig);
+    free((void *)jsonMqttConfig);
+    return ESP_OK;
+}
+
+static esp_err_t mqttSetPostHandler(httpd_req_t *req)
+{
+    ESP_LOGI(TAG, "uri: %s", req->uri);
+
+    char *buf = ((rest_server_context_t *)(req->user_ctx))->scratch;
+    esp_err_t err = getPostContent(req, buf, SCRATCH_BUFSIZE); 
+
+    if (err == -21002) {
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, JSON_Message("Post content too long"));
+        return ESP_FAIL;
+    }
+    else if (err == -21003) {
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, JSON_Message("Failed to post control value"));
+        return ESP_FAIL;
+    }
+    
+    cJSON *root = cJSON_Parse(buf);
+    mqttConfig_t pMqttConfig;
+    mqttConfig_t *mqttConfig = getMqttConfig();
+    
+    jsonStrValue(root, pMqttConfig.protocol, sizeof(pMqttConfig.protocol), "protocol", mqttConfig->protocol);
+    jsonStrValue(root, pMqttConfig.host, sizeof(pMqttConfig.host), "host", mqttConfig->host);
+    jsonUInt16Value(root, &(pMqttConfig.port), "port", mqttConfig->port);
+    jsonStrValue(root, pMqttConfig.username, sizeof(pMqttConfig.username), "username", mqttConfig->username);
+    jsonStrValue(root, pMqttConfig.password, sizeof(pMqttConfig.password), "password", mqttConfig->password);
+    
+    saveMqttConfig(&pMqttConfig);
+    
+    cJSON_Delete(root);
+    
+    httpd_resp_set_type(req, "application/json");
+    
+    const char *jsonNMqttConfig = getJsonMqttConfig();
+    httpd_resp_sendstr(req, jsonNMqttConfig);
+    free((void *)jsonNMqttConfig);
     return ESP_OK;
 }
 
@@ -290,6 +416,7 @@ static httpd_handle_t startWebServer(const char *base_path)
     
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     config.stack_size = 8192;
+    config.max_uri_handlers = 16;
     config.uri_match_fn = httpd_uri_match_wildcard;
 
     ESP_LOGI(TAG, "Starting HTTP Server");
@@ -299,6 +426,14 @@ static httpd_handle_t startWebServer(const char *base_path)
         return NULL;
     }
     ESP_LOGI(TAG, "Start HTTP server OK");
+
+    httpd_uri_t deviceStateGetUri = {
+        .uri = "/api/v1/device/state",
+        .method = HTTP_GET,
+        .handler = deviceStateGetHandler,
+        .user_ctx = rest_context
+    };
+    httpd_register_uri_handler(server, &deviceStateGetUri);
 
     httpd_uri_t deviceFactoryGetUri = {
         .uri = "/api/v1/device/factory",
@@ -316,14 +451,6 @@ static httpd_handle_t startWebServer(const char *base_path)
     };
     httpd_register_uri_handler(server, &deviceConfigGetUri);
 
-    httpd_uri_t deviceStateGetUri = {
-        .uri = "/api/v1/device/state",
-        .method = HTTP_GET,
-        .handler = deviceStateGetHandler,
-        .user_ctx = rest_context
-    };
-    httpd_register_uri_handler(server, &deviceStateGetUri);
-
     httpd_uri_t deviceSetPostUri = {
         .uri = "/api/v1/device/set",
         .method = HTTP_POST,
@@ -331,6 +458,38 @@ static httpd_handle_t startWebServer(const char *base_path)
         .user_ctx = rest_context
     };
     httpd_register_uri_handler(server, &deviceSetPostUri);
+
+    httpd_uri_t wifiConfigGetUri = {
+        .uri = "/api/v1/wifi/config",
+        .method = HTTP_GET,
+        .handler = wifiConfigGetHandler,
+        .user_ctx = rest_context
+    };
+    httpd_register_uri_handler(server, &wifiConfigGetUri);
+
+    httpd_uri_t wifiSetPostUri = {
+        .uri = "/api/v1/wifi/set",
+        .method = HTTP_POST,
+        .handler = wifiSetPostHandler,
+        .user_ctx = rest_context
+    };
+    httpd_register_uri_handler(server, &wifiSetPostUri);
+    
+    httpd_uri_t mqttConfigGetUri = {
+        .uri = "/api/v1/mqtt/config",
+        .method = HTTP_GET,
+        .handler = mqttConfigGetHandler,
+        .user_ctx = rest_context
+    };
+    httpd_register_uri_handler(server, &mqttConfigGetUri);
+
+    httpd_uri_t mqttSetPostUri = {
+        .uri = "/api/v1/mqtt/set",
+        .method = HTTP_POST,
+        .handler = mqttSetPostHandler,
+        .user_ctx = rest_context
+    };
+    httpd_register_uri_handler(server, &mqttSetPostUri);
 
     httpd_uri_t systemInfoGetUri = {
         .uri = "/api/v1/system/info",
@@ -393,7 +552,7 @@ static esp_err_t fsInit(void)
 }
 #endif
 
-#if CONFIG_WEB_DEPLOY_SD
+#if CONFIG_WEB_DEPLOY_SF
 esp_err_t fsInit(void)
 {
     esp_vfs_spiffs_conf_t conf = {
