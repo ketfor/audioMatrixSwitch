@@ -126,6 +126,7 @@ const char * getJsonWifiConfig()
     
     cJSON_AddNumberToObject(root, "type", wifiConfig.type);
     cJSON_AddStringToObject(root, "ip", wifiConfig.ip);
+    cJSON_AddStringToObject(root, "hostname", wifiConfig.hostname); 
     cJSON_AddStringToObject(root, "ssid", wifiConfig.ssid); 
     cJSON_AddStringToObject(root, "password", wifiConfig.password); 
 

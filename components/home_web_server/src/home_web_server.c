@@ -311,18 +311,17 @@ static esp_err_t wifiSetPostHandler(httpd_req_t *req)
     }
     
     cJSON *root = cJSON_Parse(buf);
-    if (cJSON_HasObjectItem(root, "wifi_config")) {
-        cJSON *jsonWifiConfig = cJSON_GetObjectItem(root, "wifi_config");
-        wifiConfig_t pWifiConfig;
-        wifiConfig_t *wifiConfig = getWifiConfig();
-        
-        jsonUInt8Value(jsonWifiConfig, &(pWifiConfig.type), "type", wifiConfig->type);
-        jsonStrValue(jsonWifiConfig, pWifiConfig.ip, sizeof(pWifiConfig.ip), "ip", wifiConfig->ip);
-        jsonStrValue(jsonWifiConfig, pWifiConfig.ssid, sizeof(pWifiConfig.ssid), "ssid", wifiConfig->ssid);
-        jsonStrValue(jsonWifiConfig, pWifiConfig.password, sizeof(pWifiConfig.password), "password", wifiConfig->password);
-        
-        saveWifiConfig(&pWifiConfig);
-    }
+    cJSON *jsonWifiConfig = cJSON_GetObjectItem(root, "wifi_config");
+    wifiConfig_t pWifiConfig;
+    wifiConfig_t *wifiConfig = getWifiConfig();
+    
+    jsonUInt8Value(jsonWifiConfig, &(pWifiConfig.type), "type", wifiConfig->type);
+    jsonStrValue(jsonWifiConfig, pWifiConfig.ip, sizeof(pWifiConfig.ip), "ip", wifiConfig->ip);
+    jsonStrValue(jsonWifiConfig, pWifiConfig.hostname, sizeof(pWifiConfig.hostname), "hostname", wifiConfig->hostname);
+    jsonStrValue(jsonWifiConfig, pWifiConfig.ssid, sizeof(pWifiConfig.ssid), "ssid", wifiConfig->ssid);
+    jsonStrValue(jsonWifiConfig, pWifiConfig.password, sizeof(pWifiConfig.password), "password", wifiConfig->password);
+    
+    saveWifiConfig(&pWifiConfig);
     cJSON_Delete(root);
     
     httpd_resp_set_type(req, "application/json");

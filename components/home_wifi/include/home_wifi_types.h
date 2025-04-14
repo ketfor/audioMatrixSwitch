@@ -11,6 +11,7 @@ extern "C" {
 typedef struct {
     uint8_t type;
     char ip[16];
+    char hostname[16];
     char ssid[16]; 
     char password[16]; 
 } wifiConfig_t;
