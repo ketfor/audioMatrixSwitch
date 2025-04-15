@@ -8,7 +8,7 @@
 #include "esp_chip_info.h"
 #include "lwip/err.h"
 #include "lwip/sys.h"
-#include "cJSON.h"
+#include "home_json.h"
 #include "home_web_server.h"
 #include "events_types.h"
 #include "audiomatrix.h"
@@ -26,7 +26,10 @@ static void strcpyToChar(char *dstStr, const char *srcStr, size_t dstStrSize, ch
     dstStr[i] = 0;
 }
 
-/* Set HTTP response content type according to file extension */
+/// @brief Set HTTP response content type according to file extension
+/// @param req 
+/// @param filepath 
+/// @return 
 static esp_err_t set_content_type_from_file(httpd_req_t *req, const char *filepath)
 {
     const char *type = "text/plain";
@@ -44,15 +47,6 @@ static esp_err_t set_content_type_from_file(httpd_req_t *req, const char *filepa
         type = "text/xml";
     }
     return httpd_resp_set_type(req, type);
-}
-
-static const char * JSON_Message(const char *mes )
-{
-    cJSON *root = cJSON_CreateObject();
-    cJSON_AddStringToObject(root, "message", mes);
-    const char *jmes = cJSON_Print(root);
-    cJSON_Delete(root);
-    return jmes;
 }
 
 static esp_err_t getPostContent(httpd_req_t *req, char *buf, size_t bufSize)
@@ -77,37 +71,7 @@ static esp_err_t getPostContent(httpd_req_t *req, char *buf, size_t bufSize)
     return ESP_OK;
 }
 
-static void jsonStrValue(cJSON *json, char *out, size_t outSize, char *param, char *def)
-{
-    if (cJSON_HasObjectItem(json, param)) {
-        strlcpy(out, cJSON_GetObjectItem(json, param)->valuestring, outSize);
-    }
-    else {
-        strlcpy(out, def, outSize);
-    }
-}
-
-static void jsonUInt8Value(cJSON *json, uint8_t *out, char *param, int def)
-{
-    if (cJSON_HasObjectItem(json, param)) {
-        *out = cJSON_GetObjectItem(json, param)->valueint;
-    }
-    else {
-        *out = def;
-    }
-}
-
-static void jsonUInt16Value(cJSON *json, uint16_t *out, char *param, int def)
-{
-    if (cJSON_HasObjectItem(json, param)) {
-        *out = cJSON_GetObjectItem(json, param)->valueint;
-    }
-    else {
-        *out = def;
-    }
-}
-
-/* Send HTTP response with the contents of the requested file */
+// Send HTTP response with the contents of the requested file
 static esp_err_t restCommonGetHandler(httpd_req_t *req)
 {
     char filepath[FILE_PATH_MAX];
@@ -135,9 +99,6 @@ static esp_err_t restCommonGetHandler(httpd_req_t *req)
     int fd = open(filepath, O_RDONLY, 0);
     if (fd == -1) {
         ESP_LOGW(TAG, "Failed to open file : %s", filepath);
-        /* Respond with 500 Internal Server Error */
-        //httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to read existing file");
-        //return ESP_FAIL;
         strlcpy(filepath, rest_context->base_path, sizeof(filepath));
         strlcat(filepath, "/404.html", sizeof(filepath));
         fd = open(filepath, O_RDONLY, 0);
@@ -148,27 +109,27 @@ static esp_err_t restCommonGetHandler(httpd_req_t *req)
     char *chunk = rest_context->scratch;
     ssize_t read_bytes;
     do {
-        /* Read file in chunks into the scratch buffer */
+        // Read file in chunks into the scratch buffer
         read_bytes = read(fd, chunk, SCRATCH_BUFSIZE);
         if (read_bytes == -1) {
             ESP_LOGE(TAG, "Failed to read file : %s", filepath);
         } else if (read_bytes > 0) {
-            /* Send the buffer contents as HTTP response chunk */
+            //Send the buffer contents as HTTP response chunk
             if (httpd_resp_send_chunk(req, chunk, read_bytes) != ESP_OK) {
                 close(fd);
                 ESP_LOGE(TAG, "File sending failed!");
-                /* Abort sending file */
+                // Abort sending file
                 httpd_resp_sendstr_chunk(req, NULL);
-                /* Respond with 500 Internal Server Error */
+                // Respond with 500 Internal Server Error 
                 httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to send file");
                 return ESP_FAIL;
             }
         }
     } while (read_bytes > 0);
-    /* Close file after sending complete */
+    // Close file after sending complete
     close(fd);
     ESP_LOGI(TAG, "File sending complete");
-    /* Respond with an empty chunk to signal HTTP response completion */
+    // Respond with an empty chunk to signal HTTP response completion
     httpd_resp_send_chunk(req, NULL, 0);
     return ESP_OK;
 }
@@ -365,7 +326,7 @@ static esp_err_t mqttSetPostHandler(httpd_req_t *req)
     
     jsonStrValue(root, pMqttConfig.protocol, sizeof(pMqttConfig.protocol), "protocol", mqttConfig->protocol);
     jsonStrValue(root, pMqttConfig.host, sizeof(pMqttConfig.host), "host", mqttConfig->host);
-    jsonUInt16Value(root, &(pMqttConfig.port), "port", mqttConfig->port);
+    jsonUInt32Value(root, &(pMqttConfig.port), "port", mqttConfig->port);
     jsonStrValue(root, pMqttConfig.username, sizeof(pMqttConfig.username), "username", mqttConfig->username);
     jsonStrValue(root, pMqttConfig.password, sizeof(pMqttConfig.password), "password", mqttConfig->password);
     

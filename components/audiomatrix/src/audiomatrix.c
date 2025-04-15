@@ -6,7 +6,7 @@
 #include "home_wifi.h"
 #include "lwip/err.h"
 #include "lwip/sys.h"
-#include "cJSON.h"
+#include "home_json.h"
 #include "nvs_preferences.h"
 #include "events_types.h"
 #include "audiomatrix.h"
@@ -202,8 +202,7 @@ BaseType_t saveConfig(device_t *pdevice)
     nvs_close(pHandle);
     xSemaphoreGive(xMutex);
 
-    deviceConfigure();
-    return pdTRUE;
+    return deviceConfigure();
 }
 
 static BaseType_t setPort(uint8_t numOutput, uint8_t numInput) 

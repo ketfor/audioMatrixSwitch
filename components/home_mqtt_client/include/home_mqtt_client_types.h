@@ -12,7 +12,7 @@ extern "C" {
 typedef struct {
     char protocol[8];
     char host[16];
-    uint16_t port;
+    uint32_t port;
     char username[16]; 
     char password[16]; 
 } mqttConfig_t;

@@ -1,6 +1,6 @@
 idf_component_register(SRCS "src/home_web_server.c"
                     INCLUDE_DIRS "include"
-                    PRIV_REQUIRES esp_http_server spiffs json events audiomatrix home_wifi home_mqtt_client
+                    PRIV_REQUIRES esp_http_server spiffs home_json events audiomatrix home_wifi home_mqtt_client
                     REQUIRES vfs)
 
 if(CONFIG_WEB_DEPLOY_SF)

@@ -41,7 +41,6 @@ BaseType_t getStrPref(nvs_handle_t pHandle, const char *key, char *value, size_t
 BaseType_t setStrPref(nvs_handle_t pHandle, const char *key, char *value) 
 {
     esp_err_t err = nvs_set_str(pHandle, key, value);
-
     if(err == ESP_OK)
         return pdTRUE;
     else {
@@ -60,10 +59,54 @@ BaseType_t getUInt8Pref(nvs_handle_t pHandle, const char *key, uint8_t *value)
         return pdFALSE;
     }
 }
+
 BaseType_t setUInt8Pref(nvs_handle_t pHandle, const char *key, uint8_t value)
 {
     esp_err_t err = nvs_set_u8(pHandle, key, value);
+    if(err == ESP_OK)
+        return pdTRUE;
+    else {
+        ESP_LOGE(TAG, "Failed to set preferences \"%s\": %d (%s)", key, err, esp_err_to_name(err));
+        return pdFALSE;
+    }
+}
 
+BaseType_t getUInt16Pref(nvs_handle_t pHandle, const char *key, uint16_t *value)
+{
+    esp_err_t err = nvs_get_u16(pHandle, key, value);
+    if(err == ESP_OK)
+        return pdTRUE;
+    else {
+        ESP_LOGE(TAG, "Failed to get preferences \"%s\": %d (%s)", key, err, esp_err_to_name(err));
+        return pdFALSE;
+    }
+}
+
+BaseType_t setUInt16Pref(nvs_handle_t pHandle, const char *key, uint16_t value)
+{
+    esp_err_t err = nvs_set_u16(pHandle, key, value);
+    if(err == ESP_OK)
+        return pdTRUE;
+    else {
+        ESP_LOGE(TAG, "Failed to set preferences \"%s\": %d (%s)", key, err, esp_err_to_name(err));
+        return pdFALSE;
+    }
+}
+
+BaseType_t getUInt32Pref(nvs_handle_t pHandle, const char *key, uint32_t *value)
+{
+    esp_err_t err = nvs_get_u32(pHandle, key, value);
+    if(err == ESP_OK)
+        return pdTRUE;
+    else {
+        ESP_LOGE(TAG, "Failed to get preferences \"%s\": %d (%s)", key, err, esp_err_to_name(err));
+        return pdFALSE;
+    }
+}
+
+BaseType_t setUInt32Pref(nvs_handle_t pHandle, const char *key, uint32_t value)
+{
+    esp_err_t err = nvs_set_u32(pHandle, key, value);
     if(err == ESP_OK)
         return pdTRUE;
     else {

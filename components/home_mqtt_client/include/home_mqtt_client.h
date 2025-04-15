@@ -11,6 +11,7 @@ extern "C" {
 mqttConfig_t * getMqttConfig();
 const char * getJsonMqttConfig();
 BaseType_t saveMqttConfig(mqttConfig_t *pMqttConfig);
+BaseType_t setMqttDefaultPreferences();
 void mqttClientInit(void);
 
 #ifdef __cplusplus
