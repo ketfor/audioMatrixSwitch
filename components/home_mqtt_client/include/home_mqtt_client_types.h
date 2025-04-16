@@ -10,12 +10,18 @@ extern "C" {
 #endif
 
 typedef struct {
-    char protocol[8];
+    char protocol[16];
     char host[16];
     uint32_t port;
     char username[16]; 
     char password[16]; 
 } mqttConfig_t;
+
+typedef enum {
+    HOME_MQTT_DISCONNECTED = 0,
+    HOME_MQTT_CONNECTED,
+    HOME_MQTT_CONNECTING
+} mqttState_t;
 
 #ifdef __cplusplus
 }

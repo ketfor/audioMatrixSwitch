@@ -21,12 +21,12 @@
 #define MQTT_MAXIMUM_RETRY 5
 
 static EventGroupHandle_t xEventGroup;
-static bool mqttConnected = false;
 static mqttConfig_t mqttConfig;
 static esp_mqtt_client_handle_t client = NULL;
 static SemaphoreHandle_t xMutex;
 static nvs_handle_t pHandle = 0;
 static int s_retry_num = 0;
+mqttState_t mqttState;
 
 static void subscribeState()
 {
@@ -80,7 +80,7 @@ static void audiomatrixEventTask(void *pvParameters)
 static void audiomatrixEventHandler(void* arg, esp_event_base_t event_base,
     int32_t event_id, void* event_data)
 {
-    if (!mqttConnected) {
+    if (mqttState != HOME_MQTT_CONNECTED) {
         ESP_LOGW(TAG, "audiomatrixEventHandler: MQTT not connected");
         return;
     }
@@ -106,20 +106,20 @@ static void mqttEventHandler(void *handler_args, esp_event_base_t base, int32_t 
     switch ((esp_mqtt_event_id_t)event_id) {
     case MQTT_EVENT_CONNECTED:
         ESP_LOGI(TAG, "MQTT_EVENT_CONNECTED");
-        mqttConnected = true;
+        mqttState = HOME_MQTT_CONNECTED;
         s_retry_num = 0;
         xEventGroupSetBits(xEventGroup, SUBSCRIBE_STATE_BIT|PUBLISH_CONFIG_BIT);
         break;
     case MQTT_EVENT_DISCONNECTED:
-        mqttConnected = false;
-        /*
         if (s_retry_num < MQTT_MAXIMUM_RETRY) {
             s_retry_num++;
-            ESP_LOGI(TAG, "retry connect to %s%s:%lu", mqttConfig.protocol, mqttConfig.host, mqttConfig.port);
+            mqttState = HOME_MQTT_CONNECTING;
+            esp_mqtt_client_reconnect(client);
+            ESP_LOGW(TAG, "retry connect to %s%s:%lu", mqttConfig.protocol, mqttConfig.host, mqttConfig.port);
         } else {
-            ESP_LOGI(TAG, "failed connect to %s%s:%lu", mqttConfig.protocol, mqttConfig.host, mqttConfig.port);
+            mqttState = HOME_MQTT_DISCONNECTED;
+            ESP_LOGE(TAG, "failed connect to %s%s:%lu", mqttConfig.protocol, mqttConfig.host, mqttConfig.port);
         }
-        */
         break;
     case MQTT_EVENT_SUBSCRIBED:
         ESP_LOGI(TAG, "MQTT_EVENT_SUBSCRIBED, msg_id=%d", event->msg_id);
@@ -153,9 +153,9 @@ static void mqttEventHandler(void *handler_args, esp_event_base_t base, int32_t 
     }
 }
 
-static esp_mqtt_client_handle_t startMqttClient(void)
+static BaseType_t initMqttClient(void)
 {
-    ESP_LOGI(TAG, "Starting MQTT Client");
+    ESP_LOGI(TAG, "Initializing MQTT Client");
     esp_mqtt_client_config_t config = {
         .broker.address.transport = MQTT_TRANSPORT_OVER_TCP,
         .broker.address.hostname = mqttConfig.host,
@@ -164,43 +164,61 @@ static esp_mqtt_client_handle_t startMqttClient(void)
         .credentials.authentication.password = mqttConfig.password,
         .session.last_will.qos = 0,
         .session.last_will.retain = 1,
+        .network.disable_auto_reconnect = true
     };
-    ESP_LOGI(TAG, "Mqtt connecting to %s%s:%lu", mqttConfig.protocol, mqttConfig.host, mqttConfig.port);
-    esp_mqtt_client_handle_t client = esp_mqtt_client_init(&config);
-    if (esp_mqtt_client_start(client) != ESP_OK){
-        ESP_LOGE(TAG, "Start MQTT Client failed");
-        return NULL;
+    if (client == NULL)
+        client = esp_mqtt_client_init(&config);
+    else 
+        esp_mqtt_set_config(client, &config);
+        
+    if (client != NULL) {
+        ESP_LOGI(TAG, "Mqtt initialized complite for %s%s:%lu", mqttConfig.protocol, mqttConfig.host, mqttConfig.port);
+        return pdTRUE;
     }
-    ESP_LOGI(TAG, "Start MQTT Client OK");
-    esp_mqtt_client_register_event(client, ESP_EVENT_ANY_ID, mqttEventHandler, NULL);
-    return client;
+    else {
+        return pdFALSE;
+        ESP_LOGW(TAG, "Mqtt initialize failed for %s%s:%lu", mqttConfig.protocol, mqttConfig.host, mqttConfig.port);
+    }
 }
 
-static esp_err_t stopMqttClient(esp_mqtt_client_handle_t client)
+static BaseType_t startMqttClient(void)
+{
+    ESP_LOGI(TAG, "Starting MQTT Client");
+    esp_mqtt_client_register_event(client, ESP_EVENT_ANY_ID, mqttEventHandler, NULL);
+    ESP_LOGI(TAG, "Connecting to %s%s:%lu", mqttConfig.protocol, mqttConfig.host, mqttConfig.port);
+        
+    if (esp_mqtt_client_start(client) != ESP_OK){
+        ESP_LOGE(TAG, "Start MQTT Client failed");
+        return pdFALSE;
+    }
+    ESP_LOGI(TAG, "Start MQTT Client OK");
+    
+    return pdTRUE;
+}
+
+static BaseType_t stopMqttClient()
 {
     ESP_LOGI(TAG, "Stoping MQTT Client");
     if (esp_mqtt_client_stop(client) != ESP_OK) {
         ESP_LOGE(TAG, "Stop MQTT Client failed");
-        return ESP_FAIL;
+        return pdFALSE;
     }
     ESP_LOGI(TAG, "Stop MQTT Client OK");
-    return ESP_OK;
+    esp_mqtt_client_unregister_event(client, ESP_EVENT_ANY_ID, mqttEventHandler);
+    return pdTRUE;
 }
 
 static void connectHandler(void* arg, esp_event_base_t event_base,
     int32_t event_id, void* event_data)
 {
-    if (client == NULL) {
-        client = startMqttClient();
-    }
+    initMqttClient();
+    if (client) startMqttClient();
 }
 
 static void disconnectHandler(void* arg, esp_event_base_t event_base,
     int32_t event_id, void* event_data)
 {
-    if (client) {
-        if (stopMqttClient(client) == ESP_OK) client = NULL;
-    }
+    if (client) stopMqttClient();
 }
 
 mqttConfig_t * getMqttConfig()
@@ -211,11 +229,13 @@ const char * getJsonMqttConfig()
 {
     // payload
     cJSON *root = cJSON_CreateObject();
-    cJSON_AddStringToObject(root, "protocol", mqttConfig.protocol);
-    cJSON_AddStringToObject(root, "host", mqttConfig.host);
-    cJSON_AddNumberToObject(root, "port", mqttConfig.port);
-    cJSON_AddStringToObject(root, "username", mqttConfig.username); 
-    cJSON_AddStringToObject(root, "password", mqttConfig.password); 
+    cJSON *config = cJSON_AddObjectToObject(root, "config");
+    cJSON_AddStringToObject(config, "protocol", mqttConfig.protocol);
+    cJSON_AddStringToObject(config, "host", mqttConfig.host);
+    cJSON_AddNumberToObject(config, "port", mqttConfig.port);
+    cJSON_AddStringToObject(config, "username", mqttConfig.username); 
+    cJSON_AddStringToObject(config, "password", mqttConfig.password); 
+    cJSON_AddNumberToObject(root, "state", mqttState);
 
     char *jsonConfig = cJSON_Print(root);
     cJSON_Delete(root);
@@ -251,18 +271,21 @@ BaseType_t saveMqttConfig(mqttConfig_t *pMqttConfig)
         return pdFALSE;
     }
     nvsOpen(NVSGROUP, NVS_READWRITE, &pHandle);
-    setStrPref(pHandle, "mqtt.protocol", pMqttConfig->protocol);
+    setStrPref(pHandle, "mqtt.protocol", "mqtt://");
     setStrPref(pHandle, "mqtt.host", pMqttConfig->host);
     setUInt32Pref(pHandle, "mqtt.port", pMqttConfig->port);
     setStrPref(pHandle, "mqtt.username", pMqttConfig->username);
     setStrPref(pHandle, "mqtt.password", pMqttConfig->password);
-    
     nvs_close(pHandle);
     xSemaphoreGive(xMutex);
     ESP_LOGI(TAG, "Mqtt config saved");
+
     mqttConfigure();
-    stopMqttClient(client);
-    client = startMqttClient();
+    esp_mqtt_client_disconnect(client);
+    initMqttClient();
+    s_retry_num = 0;
+    ESP_LOGI(TAG, "Connecting to %s%s:%lu", mqttConfig.protocol, mqttConfig.host, mqttConfig.port);
+    esp_mqtt_client_reconnect(client);
     return pdTRUE;
 }
 
@@ -271,11 +294,11 @@ BaseType_t setMqttDefaultPreferences()
     ESP_LOGI(TAG, "Setting default preference of mqtt");
     mqttConfig_t *pMqttConfig = malloc(sizeof(mqttConfig_t));
  
-    strlcpy(mqttConfig.protocol, "mqtt://", sizeof(mqttConfig.protocol));
-    strlcpy(mqttConfig.host, "mqtt.local", sizeof(mqttConfig.host));
-    mqttConfig.port = 1883;
-    strlcpy(mqttConfig.username, "mqtt", sizeof(mqttConfig.username));
-    strlcpy(mqttConfig.password, "mqtt", sizeof(mqttConfig.password));
+    strlcpy(pMqttConfig->protocol, "mqtt://", sizeof(pMqttConfig->protocol));
+    strlcpy(pMqttConfig->host, "mqtt.local", sizeof(pMqttConfig->host));
+    pMqttConfig->port = 1883;
+    strlcpy(pMqttConfig->username, "mqtt", sizeof(pMqttConfig->username));
+    strlcpy(pMqttConfig->password, "mqtt", sizeof(pMqttConfig->password));
 
     saveMqttConfig(pMqttConfig);
     free(pMqttConfig);

@@ -273,16 +273,17 @@ static esp_err_t wifiSetPostHandler(httpd_req_t *req)
     
     cJSON *root = cJSON_Parse(buf);
     cJSON *jsonWifiConfig = cJSON_GetObjectItem(root, "wifi_config");
-    wifiConfig_t pWifiConfig;
+    wifiConfig_t *pWifiConfig = malloc(sizeof(wifiConfig_t));
     wifiConfig_t *wifiConfig = getWifiConfig();
     
-    jsonUInt8Value(jsonWifiConfig, &(pWifiConfig.type), "type", wifiConfig->type);
-    jsonStrValue(jsonWifiConfig, pWifiConfig.ip, sizeof(pWifiConfig.ip), "ip", wifiConfig->ip);
-    jsonStrValue(jsonWifiConfig, pWifiConfig.hostname, sizeof(pWifiConfig.hostname), "hostname", wifiConfig->hostname);
-    jsonStrValue(jsonWifiConfig, pWifiConfig.ssid, sizeof(pWifiConfig.ssid), "ssid", wifiConfig->ssid);
-    jsonStrValue(jsonWifiConfig, pWifiConfig.password, sizeof(pWifiConfig.password), "password", wifiConfig->password);
+    jsonUInt8Value(jsonWifiConfig, &(pWifiConfig->type), "type", wifiConfig->type);
+    jsonStrValue(jsonWifiConfig, pWifiConfig->ip, sizeof(pWifiConfig->ip), "ip", wifiConfig->ip);
+    jsonStrValue(jsonWifiConfig, pWifiConfig->hostname, sizeof(pWifiConfig->hostname), "hostname", wifiConfig->hostname);
+    jsonStrValue(jsonWifiConfig, pWifiConfig->ssid, sizeof(pWifiConfig->ssid), "ssid", wifiConfig->ssid);
+    jsonStrValue(jsonWifiConfig, pWifiConfig->password, sizeof(pWifiConfig->password), "password", wifiConfig->password);
     
-    saveWifiConfig(&pWifiConfig);
+    saveWifiConfig(pWifiConfig);
+    free(pWifiConfig);
     cJSON_Delete(root);
     
     httpd_resp_set_type(req, "application/json");
@@ -321,17 +322,17 @@ static esp_err_t mqttSetPostHandler(httpd_req_t *req)
     }
     
     cJSON *root = cJSON_Parse(buf);
-    mqttConfig_t pMqttConfig;
+    mqttConfig_t *pMqttConfig = malloc(sizeof(mqttConfig_t));
     mqttConfig_t *mqttConfig = getMqttConfig();
     
-    jsonStrValue(root, pMqttConfig.protocol, sizeof(pMqttConfig.protocol), "protocol", mqttConfig->protocol);
-    jsonStrValue(root, pMqttConfig.host, sizeof(pMqttConfig.host), "host", mqttConfig->host);
-    jsonUInt32Value(root, &(pMqttConfig.port), "port", mqttConfig->port);
-    jsonStrValue(root, pMqttConfig.username, sizeof(pMqttConfig.username), "username", mqttConfig->username);
-    jsonStrValue(root, pMqttConfig.password, sizeof(pMqttConfig.password), "password", mqttConfig->password);
+    jsonStrValue(root, pMqttConfig->protocol, sizeof(pMqttConfig->protocol), "protocol", mqttConfig->protocol);
+    jsonStrValue(root, pMqttConfig->host, sizeof(pMqttConfig->host), "host", mqttConfig->host);
+    jsonUInt32Value(root, &(pMqttConfig->port), "port", mqttConfig->port);
+    jsonStrValue(root, pMqttConfig->username, sizeof(pMqttConfig->username), "username", mqttConfig->username);
+    jsonStrValue(root, pMqttConfig->password, sizeof(pMqttConfig->password), "password", mqttConfig->password);
     
-    saveMqttConfig(&pMqttConfig);
-    
+    saveMqttConfig(pMqttConfig);
+    free(pMqttConfig);
     cJSON_Delete(root);
     
     httpd_resp_set_type(req, "application/json");
