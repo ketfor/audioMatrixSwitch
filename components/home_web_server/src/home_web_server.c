@@ -193,21 +193,21 @@ static esp_err_t deviceSetPostHandler(httpd_req_t *req)
     }
     else if (cJSON_HasObjectItem(root, "device")) {
         cJSON *jsonDevice = cJSON_GetObjectItem(root, "device");
-        device_t pdevice;
+        device_t *pDevice = malloc(sizeof(device_t));
         device_t *device = getDevice();
         
-        strlcpy(pdevice.identifier, "", sizeof(pdevice.identifier));
-        jsonStrValue(jsonDevice, pdevice.name, sizeof(pdevice.name), "name", device->name);
-        jsonStrValue(jsonDevice, pdevice.configurationUrl, sizeof(pdevice.configurationUrl), "conf_url", device->configurationUrl);
-        jsonStrValue(jsonDevice, pdevice.stateTopic, sizeof(pdevice.stateTopic), "state_topic", device->stateTopic);
-        jsonStrValue(jsonDevice, pdevice.hassTopic, sizeof(pdevice.hassTopic), "hass_topic", device->hassTopic);
+        strlcpy(pDevice->identifier, "", sizeof(pDevice->identifier));
+        jsonStrValue(jsonDevice, pDevice->name, sizeof(pDevice->name), "name", device->name);
+        jsonStrValue(jsonDevice, pDevice->configurationUrl, sizeof(pDevice->configurationUrl), "conf_url", device->configurationUrl);
+        jsonStrValue(jsonDevice, pDevice->stateTopic, sizeof(pDevice->stateTopic), "state_topic", device->stateTopic);
+        jsonStrValue(jsonDevice, pDevice->hassTopic, sizeof(pDevice->hassTopic), "hass_topic", device->hassTopic);
         
         if (cJSON_HasObjectItem(root, "inputs")) {
             cJSON *jsonInputs = cJSON_GetObjectItem(root, "inputs");
             for (uint8_t num = 0; num < IN_PORTS; num++) {
                 cJSON *jsonInput = cJSON_GetArrayItem(jsonInputs, num);
                 if (jsonInput != NULL) {
-                    input_t *pinput = &(pdevice.inputs[num]);
+                    input_t *pinput = &(pDevice->inputs[num]);
                     input_t *input = &(device->inputs[num]);
                     jsonStrValue(jsonInput, pinput->name, sizeof(pinput->name), "name", input->name);
                     jsonStrValue(jsonInput, pinput->shortName, sizeof(pinput->shortName), "short_name", input->shortName);
@@ -220,7 +220,7 @@ static esp_err_t deviceSetPostHandler(httpd_req_t *req)
             for (uint8_t num = 0; num < OUT_PORTS; num++) {
                 cJSON *jsonOutput = cJSON_GetArrayItem(jsonOutputs, num);
                 if (jsonOutput != NULL) {
-                    output_t *poutput = &(pdevice.outputs[num]);
+                    output_t *poutput = &(pDevice->outputs[num]);
                     output_t *output = &(device->outputs[num]);
                     jsonUInt8Value(jsonOutput, &(poutput->class), "class", output->class);
                     output->class = cJSON_GetObjectItem(jsonOutput, "class")->valueint;
@@ -232,7 +232,8 @@ static esp_err_t deviceSetPostHandler(httpd_req_t *req)
                 }
             }
         }
-        saveConfig(&pdevice);
+        saveConfig(pDevice);
+        free(pDevice);
     }
     cJSON_Delete(root);
     
