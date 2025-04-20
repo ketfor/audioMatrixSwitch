@@ -6,10 +6,11 @@
 #include "esp_wifi_types.h"
 #include "esp_netif_types.h"
 #include "onboardled_types.h"
-#include "home_web_server_types.h"
-#include "home_wifi_types.h"
-#include "home_mqtt_client_types.h"
+#include "home_web_server_event_types.h"
+#include "home_wifi_event_types.h"
+#include "home_mqtt_client_event_types.h"
 #include "audiomatrix_event_types.h"
+#include "matrix_spi_event_types.h"
 
 #ifdef __cplusplus
 extern "C" {

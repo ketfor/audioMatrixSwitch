@@ -85,7 +85,6 @@ static void audiomatrixEventHandler(void* arg, esp_event_base_t event_base,
         return;
     }
 
-    esp_mqtt_event_handle_t event = event_data;
     switch ((audiomatrix_event_t)event_id) {
         case AUDIOMATRIX_EVENT_PORT_CHANGED:
             xEventGroupSetBits(xEventGroup, PUBLISH_STATE_BIT);
@@ -94,7 +93,7 @@ static void audiomatrixEventHandler(void* arg, esp_event_base_t event_base,
             xEventGroupSetBits(xEventGroup, PUBLISH_CONFIG_BIT);
             break;
         default:
-            ESP_LOGI(TAG, "Other event id:%d", event->event_id);
+            ESP_LOGI(TAG, "Other event id: %ld", event_id);
         break;
     }
 }
@@ -155,7 +154,7 @@ static void mqttEventHandler(void *handler_args, esp_event_base_t base, int32_t 
         }
         break;
     default:
-        ESP_LOGI(TAG, "Other event id:%d", event->event_id);
+        ESP_LOGI(TAG, "Other event id: %d", event->event_id);
         break;
     }
 }

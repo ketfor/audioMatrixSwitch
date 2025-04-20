@@ -1,0 +1,10 @@
+menu "Matrix SPI configuration "
+
+    config MATRIX_GPIO
+        int "MATRIX GPIO number"
+        range 0 48
+        default 48
+        help
+            GPIO number (IOxx) to on and off
+            
+endmenu
