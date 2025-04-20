@@ -17,6 +17,9 @@
 
 #define TAG "home_web_server"
 
+static httpd_handle_t server;
+static bool httpState = false;
+
 static void strcpyToChar(char *dstStr, const char *srcStr, size_t dstStrSize, char ch){
     size_t i = 0;
     while (i < dstStrSize - 1 && srcStr[i] != 0 && srcStr[i] != ch) {
@@ -72,7 +75,7 @@ static esp_err_t getPostContent(httpd_req_t *req, char *buf, size_t bufSize)
 }
 
 // Send HTTP response with the contents of the requested file
-static esp_err_t restCommonGetHandler(httpd_req_t *req)
+static BaseType_t restCommonGetHandler(httpd_req_t *req)
 {
     char filepath[FILE_PATH_MAX];
 
@@ -113,7 +116,8 @@ static esp_err_t restCommonGetHandler(httpd_req_t *req)
         read_bytes = read(fd, chunk, SCRATCH_BUFSIZE);
         if (read_bytes == -1) {
             ESP_LOGE(TAG, "Failed to read file : %s", filepath);
-        } else if (read_bytes > 0) {
+        } 
+        else if (read_bytes > 0) {
             //Send the buffer contents as HTTP response chunk
             if (httpd_resp_send_chunk(req, chunk, read_bytes) != ESP_OK) {
                 close(fd);
@@ -122,7 +126,7 @@ static esp_err_t restCommonGetHandler(httpd_req_t *req)
                 httpd_resp_sendstr_chunk(req, NULL);
                 // Respond with 500 Internal Server Error 
                 httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to send file");
-                return ESP_FAIL;
+                return pdFALSE;
             }
         }
     } while (read_bytes > 0);
@@ -131,10 +135,10 @@ static esp_err_t restCommonGetHandler(httpd_req_t *req)
     ESP_LOGI(TAG, "File sending complete");
     // Respond with an empty chunk to signal HTTP response completion
     httpd_resp_send_chunk(req, NULL, 0);
-    return ESP_OK;
+    return pdTRUE;
 }
 
-static esp_err_t deviceStateGetHandler(httpd_req_t *req)
+static BaseType_t deviceStateGetHandler(httpd_req_t *req)
 {
     ESP_LOGI(TAG, "uri: %s", req->uri);
     httpd_resp_set_type(req, "application/json");
@@ -142,10 +146,10 @@ static esp_err_t deviceStateGetHandler(httpd_req_t *req)
     const char *deviceState = getDeviceState();
     httpd_resp_sendstr(req, deviceState);
     free((void *)deviceState);
-    return ESP_OK;
+    return pdTRUE;
 }
 
-static esp_err_t deviceFactoryGetHandler(httpd_req_t *req)
+static BaseType_t deviceFactoryGetHandler(httpd_req_t *req)
 {
     ESP_LOGI(TAG, "uri: %s", req->uri);
     setDefaultPreferences();
@@ -154,10 +158,10 @@ static esp_err_t deviceFactoryGetHandler(httpd_req_t *req)
     const char *deviceConfig = getDeviceConfig();
     httpd_resp_sendstr(req, deviceConfig);
     free((void *)deviceConfig);
-    return ESP_OK;
+    return pdTRUE;
 }
 
-static esp_err_t deviceConfigGetHandler(httpd_req_t *req)
+static BaseType_t deviceConfigGetHandler(httpd_req_t *req)
 {
     ESP_LOGI(TAG, "uri: %s", req->uri);
     httpd_resp_set_type(req, "application/json");
@@ -165,10 +169,10 @@ static esp_err_t deviceConfigGetHandler(httpd_req_t *req)
     const char *deviceConfig = getDeviceConfig();
     httpd_resp_sendstr(req, deviceConfig);
     free((void *)deviceConfig);
-    return ESP_OK;
+    return pdTRUE;
 }
 
-static esp_err_t deviceSetPostHandler(httpd_req_t *req)
+static BaseType_t deviceSetPostHandler(httpd_req_t *req)
 {
     ESP_LOGI(TAG, "uri: %s", req->uri);
 
@@ -177,11 +181,11 @@ static esp_err_t deviceSetPostHandler(httpd_req_t *req)
 
     if (err == -21002) {
         httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, JSON_Message("Post content too long"));
-        return ESP_FAIL;
+        return pdFALSE;
     }
     else if (err == -21003) {
         httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, JSON_Message("Failed to post control value"));
-        return ESP_FAIL;
+        return pdFALSE;
     }
     
     cJSON *root = cJSON_Parse(buf);
@@ -242,10 +246,10 @@ static esp_err_t deviceSetPostHandler(httpd_req_t *req)
     const char *deviceState = getDeviceState();
     httpd_resp_sendstr(req, deviceState);
     free((void *)deviceState);
-    return ESP_OK;
+    return pdTRUE;
 }
 
-static esp_err_t wifiConfigGetHandler(httpd_req_t *req)
+static BaseType_t wifiConfigGetHandler(httpd_req_t *req)
 {
     ESP_LOGI(TAG, "uri: %s", req->uri);
     httpd_resp_set_type(req, "application/json");
@@ -253,10 +257,10 @@ static esp_err_t wifiConfigGetHandler(httpd_req_t *req)
     const char *jsonWifiConfig = getJsonWifiConfig();
     httpd_resp_sendstr(req, jsonWifiConfig);
     free((void *)jsonWifiConfig);
-    return ESP_OK;
+    return pdTRUE;
 }
 
-static esp_err_t wifiSetPostHandler(httpd_req_t *req)
+static BaseType_t wifiSetPostHandler(httpd_req_t *req)
 {
     ESP_LOGI(TAG, "uri: %s", req->uri);
 
@@ -265,19 +269,20 @@ static esp_err_t wifiSetPostHandler(httpd_req_t *req)
 
     if (err == -21002) {
         httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, JSON_Message("Post content too long"));
-        return ESP_FAIL;
+        return pdFALSE;
     }
     else if (err == -21003) {
         httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, JSON_Message("Failed to post control value"));
-        return ESP_FAIL;
+        return pdFALSE;
     }
     
-    cJSON *root = cJSON_Parse(buf);
-    cJSON *jsonWifiConfig = cJSON_GetObjectItem(root, "wifi_config");
+    cJSON *jsonWifiConfig = cJSON_Parse(buf);
+    //cJSON *jsonWifiConfig = cJSON_GetObjectItem(root, "wifi_config");
     wifiConfig_t *pWifiConfig = malloc(sizeof(wifiConfig_t));
     wifiConfig_t *wifiConfig = getWifiConfig();
     
-    jsonUInt8Value(jsonWifiConfig, &(pWifiConfig->type), "type", wifiConfig->type);
+    jsonUInt8Value(jsonWifiConfig, &(pWifiConfig->mode), "mode", wifiConfig->mode);
+    if(pWifiConfig->mode != 1 && pWifiConfig->mode != 2) pWifiConfig->mode = 2;
     jsonStrValue(jsonWifiConfig, pWifiConfig->ip, sizeof(pWifiConfig->ip), "ip", wifiConfig->ip);
     jsonStrValue(jsonWifiConfig, pWifiConfig->hostname, sizeof(pWifiConfig->hostname), "hostname", wifiConfig->hostname);
     jsonStrValue(jsonWifiConfig, pWifiConfig->ssid, sizeof(pWifiConfig->ssid), "ssid", wifiConfig->ssid);
@@ -285,17 +290,17 @@ static esp_err_t wifiSetPostHandler(httpd_req_t *req)
     
     saveWifiConfig(pWifiConfig);
     free(pWifiConfig);
-    cJSON_Delete(root);
+    cJSON_Delete(jsonWifiConfig);
     
     httpd_resp_set_type(req, "application/json");
     
     const char *jsonNWifiConfig = getJsonWifiConfig();
     httpd_resp_sendstr(req, jsonNWifiConfig);
     free((void *)jsonNWifiConfig);
-    return ESP_OK;
+    return pdTRUE;
 }
 
-static esp_err_t mqttConfigGetHandler(httpd_req_t *req)
+static BaseType_t mqttConfigGetHandler(httpd_req_t *req)
 {
     ESP_LOGI(TAG, "uri: %s", req->uri);
     httpd_resp_set_type(req, "application/json");
@@ -303,10 +308,10 @@ static esp_err_t mqttConfigGetHandler(httpd_req_t *req)
     const char *jsonMqttConfig = getJsonMqttConfig();
     httpd_resp_sendstr(req, jsonMqttConfig);
     free((void *)jsonMqttConfig);
-    return ESP_OK;
+    return pdTRUE;
 }
 
-static esp_err_t mqttSetPostHandler(httpd_req_t *req)
+static BaseType_t mqttSetPostHandler(httpd_req_t *req)
 {
     ESP_LOGI(TAG, "uri: %s", req->uri);
 
@@ -315,11 +320,11 @@ static esp_err_t mqttSetPostHandler(httpd_req_t *req)
 
     if (err == -21002) {
         httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, JSON_Message("Post content too long"));
-        return ESP_FAIL;
+        return pdFALSE;
     }
     else if (err == -21003) {
         httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, JSON_Message("Failed to post control value"));
-        return ESP_FAIL;
+        return pdFALSE;
     }
     
     cJSON *root = cJSON_Parse(buf);
@@ -341,10 +346,10 @@ static esp_err_t mqttSetPostHandler(httpd_req_t *req)
     const char *jsonNMqttConfig = getJsonMqttConfig();
     httpd_resp_sendstr(req, jsonNMqttConfig);
     free((void *)jsonNMqttConfig);
-    return ESP_OK;
+    return pdTRUE;
 }
 
-static esp_err_t systemInfoGetHandler(httpd_req_t *req)
+static BaseType_t systemInfoGetHandler(httpd_req_t *req)
 {
     ESP_LOGI(TAG, "uri: %s", req->uri);
     httpd_resp_set_type(req, "application/json");
@@ -357,21 +362,19 @@ static esp_err_t systemInfoGetHandler(httpd_req_t *req)
     httpd_resp_sendstr(req, sysInfo);
     free((void *)sysInfo);
     cJSON_Delete(root);
-    return ESP_OK;
+    return pdTRUE;
 }
 
-static httpd_handle_t startWebServer(const char *base_path) 
+static BaseType_t startWebServer(const char *base_path) 
 {
-    httpd_handle_t server;
-
     if (!(base_path)) {
         ESP_LOGE(TAG, "Wrong base path");
-        return NULL;
+        return pdFALSE;
     }
     rest_server_context_t *rest_context = calloc(1, sizeof(rest_server_context_t));
     if (!(rest_context)){
         ESP_LOGE(TAG, "No memory for rest context");
-        return NULL;
+        return pdFALSE;
     }
 
     strlcpy(rest_context->base_path, base_path, sizeof(rest_context->base_path));
@@ -385,9 +388,9 @@ static httpd_handle_t startWebServer(const char *base_path)
     if (httpd_start(&server, &config) != ESP_OK){
         ESP_LOGE(TAG, "Start HTTP server failed");
         free(rest_context);
-        return NULL;
+        return pdFALSE;
     }
-    ESP_LOGI(TAG, "Start HTTP server OK");
+    ESP_LOGI(TAG, "Start HTTP server complite");
 
     httpd_uri_t deviceStateGetUri = {
         .uri = "/api/v1/device/state",
@@ -469,36 +472,32 @@ static httpd_handle_t startWebServer(const char *base_path)
     };
     httpd_register_uri_handler(server, &commonGetUri);
 
-    return server;
+    httpState = true;
+    return pdTRUE;
 }
 
-static esp_err_t stopWebServer(httpd_handle_t server)
+static BaseType_t stopWebServer(httpd_handle_t server)
 {
-    ESP_LOGI(TAG, "Stoping HTTP Server");
+    ESP_LOGI(TAG, "Stoping HTTP Server...");
     if (httpd_stop(server) != ESP_OK) {
         ESP_LOGE(TAG, "Stop HTTP server failed");
-        return ESP_FAIL;
+        return pdFALSE;
     }
-    ESP_LOGI(TAG, "Stop HTTP server OK");
-    return ESP_OK;
+    ESP_LOGI(TAG, "Stop HTTP server complite");
+    httpState = false;
+    return pdTRUE;
 }
 
 static void connectHandler(void* arg, esp_event_base_t event_base,
     int32_t event_id, void* event_data)
 {
-    httpd_handle_t* server = (httpd_handle_t*) arg;
-    if (*server == NULL) {
-        *server = startWebServer(CONFIG_WEB_MOUNT_POINT);
-    }
+    if (!httpState) startWebServer(CONFIG_WEB_MOUNT_POINT);
 }
 
 static void disconnectHandler(void* arg, esp_event_base_t event_base,
     int32_t event_id, void* event_data)
 {
-    httpd_handle_t* server = (httpd_handle_t*) arg;
-    if (*server) {
-        if (stopWebServer(*server) == ESP_OK) *server = NULL;
-    }
+    if (httpState) stopWebServer(server);
 }
 
 #if CONFIG_WEB_DEPLOY_SEMIHOST
@@ -549,10 +548,13 @@ esp_err_t fsInit(void)
 
 void webServerInit(void)
 {
-    static httpd_handle_t server = NULL;
-    ESP_ERROR_CHECK(fsInit());
-    server = startWebServer(CONFIG_WEB_MOUNT_POINT);
-    ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, &connectHandler, &server));
-    ESP_ERROR_CHECK(esp_event_handler_register(WIFI_EVENT, WIFI_EVENT_STA_DISCONNECTED, &disconnectHandler, &server));
+    if (fsInit() != ESP_OK) {
+        ESP_LOGE(TAG, "Webserver init failed");
+        return;
+    }
+    //ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, &connectHandler, NULL));
+    ESP_ERROR_CHECK(esp_event_handler_register(HOME_WIFI_EVENT, HOME_WIFI_EVENT_START, &connectHandler, NULL));
+    //ESP_ERROR_CHECK(esp_event_handler_register(WIFI_EVENT, WIFI_EVENT_STA_DISCONNECTED, &disconnectHandler, NULL));
+    ESP_ERROR_CHECK(esp_event_handler_register(HOME_WIFI_EVENT, HOME_WIFI_EVENT_STOP, &disconnectHandler, NULL));
     ESP_LOGI(TAG, "Webserver init finished.");
 }

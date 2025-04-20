@@ -2,6 +2,7 @@
 #ifndef __EVENTS_TYPES_H__
 #define __EVENTS_TYPES_H__
 
+#include "esp_event.h"
 #include "esp_wifi_types.h"
 #include "esp_netif_types.h"
 #include "onboardled_types.h"

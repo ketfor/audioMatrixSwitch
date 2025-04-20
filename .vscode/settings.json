@@ -45,7 +45,10 @@
         "freertos.h": "c",
         "home_wifi_types.h": "c",
         "audiomatrix_event_types.h": "c",
-        "home_mqtt_client_event_types.h": "c"
+        "home_mqtt_client_event_types.h": "c",
+        "task.h": "c",
+        "esp_wifi_netif.h": "c",
+        "esp_netif_types.h": "c"
     },
     "idf.flashType": "UART"
 }

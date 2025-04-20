@@ -1,7 +1,6 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "mqtt_client.h"
-#include "esp_event.h"
 #include "esp_log.h"
 #include "nvs_preferences.h"
 #include "home_json.h"
@@ -27,6 +26,7 @@ static SemaphoreHandle_t xMutex;
 static nvs_handle_t pHandle = 0;
 static int s_retry_num = 0;
 mqttState_t mqttState;
+static bool mqttClientState = false;;
 
 static void subscribeState()
 {
@@ -107,19 +107,27 @@ static void mqttEventHandler(void *handler_args, esp_event_base_t base, int32_t 
     case MQTT_EVENT_CONNECTED:
         ESP_LOGI(TAG, "MQTT_EVENT_CONNECTED");
         mqttState = HOME_MQTT_CONNECTED;
-        s_retry_num = 0;
+        //s_retry_num = 0;
         xEventGroupSetBits(xEventGroup, SUBSCRIBE_STATE_BIT|PUBLISH_CONFIG_BIT);
         break;
+    case MQTT_EVENT_BEFORE_CONNECT:
+        ESP_LOGI(TAG, "MQTT_EVENT_BEFORE_CONNECT");
+        mqttState = HOME_MQTT_CONNECTING;
+        break;
     case MQTT_EVENT_DISCONNECTED:
+        ESP_LOGI(TAG, "MQTT_EVENT_DISCONNECTED");
+        mqttState = HOME_MQTT_DISCONNECTED;
+    /*
         if (s_retry_num < MQTT_MAXIMUM_RETRY) {
-            s_retry_num++;
+            s_retry_num++; 
             mqttState = HOME_MQTT_CONNECTING;
+            ESP_LOGW(TAG, "retry %d connect to %s%s:%lu", s_retry_num, mqttConfig.protocol, mqttConfig.host, mqttConfig.port);
             esp_mqtt_client_reconnect(client);
-            ESP_LOGW(TAG, "retry connect to %s%s:%lu", mqttConfig.protocol, mqttConfig.host, mqttConfig.port);
         } else {
             mqttState = HOME_MQTT_DISCONNECTED;
             ESP_LOGE(TAG, "failed connect to %s%s:%lu", mqttConfig.protocol, mqttConfig.host, mqttConfig.port);
         }
+            */
         break;
     case MQTT_EVENT_SUBSCRIBED:
         ESP_LOGI(TAG, "MQTT_EVENT_SUBSCRIBED, msg_id=%d", event->msg_id);
@@ -137,9 +145,8 @@ static void mqttEventHandler(void *handler_args, esp_event_base_t base, int32_t 
     case MQTT_EVENT_ERROR:
         ESP_LOGI(TAG, "MQTT_EVENT_ERROR");
         if (event->error_handle->error_type == MQTT_ERROR_TYPE_TCP_TRANSPORT) {
-            if (event->error_handle->esp_tls_last_esp_err !=0) {
+            if (event->error_handle->esp_tls_last_esp_err !=0)
                 ESP_LOGE(TAG, "Last error %s: 0x%x", "reported from esp-tls", event->error_handle->esp_tls_last_esp_err);
-            }
             if (event->error_handle->esp_tls_stack_err !=0)
                 ESP_LOGE(TAG, "Last error %s: 0x%x", "reported from tls stack", event->error_handle->esp_tls_stack_err);
             if (event->error_handle->esp_transport_sock_errno !=0)
@@ -164,7 +171,7 @@ static BaseType_t initMqttClient(void)
         .credentials.authentication.password = mqttConfig.password,
         .session.last_will.qos = 0,
         .session.last_will.retain = 1,
-        .network.disable_auto_reconnect = true
+        //.network.disable_auto_reconnect = true
     };
     if (client == NULL)
         client = esp_mqtt_client_init(&config);
@@ -176,14 +183,14 @@ static BaseType_t initMqttClient(void)
         return pdTRUE;
     }
     else {
+        ESP_LOGE(TAG, "Mqtt initialize failed for %s%s:%lu", mqttConfig.protocol, mqttConfig.host, mqttConfig.port);
         return pdFALSE;
-        ESP_LOGW(TAG, "Mqtt initialize failed for %s%s:%lu", mqttConfig.protocol, mqttConfig.host, mqttConfig.port);
     }
 }
 
 static BaseType_t startMqttClient(void)
 {
-    ESP_LOGI(TAG, "Starting MQTT Client");
+    ESP_LOGI(TAG, "Starting MQTT Client...");
     esp_mqtt_client_register_event(client, ESP_EVENT_ANY_ID, mqttEventHandler, NULL);
     ESP_LOGI(TAG, "Connecting to %s%s:%lu", mqttConfig.protocol, mqttConfig.host, mqttConfig.port);
         
@@ -191,34 +198,37 @@ static BaseType_t startMqttClient(void)
         ESP_LOGE(TAG, "Start MQTT Client failed");
         return pdFALSE;
     }
-    ESP_LOGI(TAG, "Start MQTT Client OK");
-    
+    ESP_LOGI(TAG, "Start MQTT Client complite");
+    mqttClientState = true;
     return pdTRUE;
 }
 
 static BaseType_t stopMqttClient()
 {
-    ESP_LOGI(TAG, "Stoping MQTT Client");
+    ESP_LOGI(TAG, "Stoping MQTT Client...");
     if (esp_mqtt_client_stop(client) != ESP_OK) {
         ESP_LOGE(TAG, "Stop MQTT Client failed");
         return pdFALSE;
     }
-    ESP_LOGI(TAG, "Stop MQTT Client OK");
+    ESP_LOGI(TAG, "Stop MQTT Client complite");
     esp_mqtt_client_unregister_event(client, ESP_EVENT_ANY_ID, mqttEventHandler);
+    mqttClientState = false;
     return pdTRUE;
 }
 
 static void connectHandler(void* arg, esp_event_base_t event_base,
     int32_t event_id, void* event_data)
 {
-    initMqttClient();
-    if (client) startMqttClient();
+    if (!mqttClientState) {
+        initMqttClient();
+        if (client) startMqttClient();
+    }
 }
 
 static void disconnectHandler(void* arg, esp_event_base_t event_base,
     int32_t event_id, void* event_data)
 {
-    if (client) stopMqttClient();
+    if (mqttClientState && client) stopMqttClient();
 }
 
 mqttConfig_t * getMqttConfig()
@@ -255,7 +265,6 @@ static BaseType_t mqttConfigure()
     getUInt32Pref(pHandle, "mqtt.port", &(mqttConfig.port));
     getStrPref(pHandle, "mqtt.username", mqttConfig.username, sizeof(mqttConfig.username));
     getStrPref(pHandle, "mqtt.password", mqttConfig.password, sizeof(mqttConfig.password));
-    
     nvs_close(pHandle);
     xSemaphoreGive(xMutex);
     ESP_LOGI(TAG, "Mqtt config complite");
@@ -307,12 +316,11 @@ BaseType_t setMqttDefaultPreferences()
 
 void mqttClientInit(void)
 {
-
     static StaticSemaphore_t xSemaphoreBuffer;
     xMutex = xSemaphoreCreateMutexStatic(&xSemaphoreBuffer);
 
     if(nvsOpen(NVSGROUP, NVS_READONLY, &pHandle) != pdTRUE ) {
-        ESP_LOGW(TAG, "Namespace 'mqtt' notfound");
+        ESP_LOGW(TAG, "Namespace '%s' notfound", NVSGROUP);
         setMqttDefaultPreferences();
     }
     else {
@@ -330,8 +338,11 @@ void mqttClientInit(void)
         ESP_LOGE(TAG, "Task \"audiomatrixEventTask\" not created");
     }
 
-    ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, &connectHandler, NULL));
-    ESP_ERROR_CHECK(esp_event_handler_register(WIFI_EVENT, WIFI_EVENT_STA_DISCONNECTED, &disconnectHandler, NULL));
+    //ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, &connectHandler, NULL));
+    ESP_ERROR_CHECK(esp_event_handler_register(HOME_WIFI_EVENT, HOME_WIFI_EVENT_START, &connectHandler, NULL));
+    //ESP_ERROR_CHECK(esp_event_handler_register(WIFI_EVENT, WIFI_EVENT_STA_DISCONNECTED, &disconnectHandler, NULL));
+    ESP_ERROR_CHECK(esp_event_handler_register(HOME_WIFI_EVENT, HOME_WIFI_EVENT_STOP, &disconnectHandler, NULL));
+    
     ESP_ERROR_CHECK(esp_event_handler_register(AUDIOMATRIX_EVENT, AUDIOMATRIX_EVENT_PORT_CHANGED, &audiomatrixEventHandler, NULL));
     ESP_ERROR_CHECK(esp_event_handler_register(AUDIOMATRIX_EVENT, AUDIOMATRIX_EVENT_CONFIG_CHANGED, &audiomatrixEventHandler, NULL));
 

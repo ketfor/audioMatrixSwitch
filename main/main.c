@@ -28,8 +28,8 @@ void app_main(void) {
     systemInit();
     eventsInit();
     onboardledInit();
-    wifiStationInit();
     webServerInit();
     mqttClientInit();
+    wifiStationInit();
     audiomatrixInit();
 }

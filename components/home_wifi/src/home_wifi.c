@@ -1,20 +1,15 @@
 #include <string.h>
 #include "freertos/FreeRTOS.h"
-#include "esp_wifi.h"
-#include "esp_event.h"
 #include "esp_log.h"
 #include "lwip/apps/netbiosns.h"
-#include "lwip/err.h"
-#include "lwip/sys.h"
 #include "mdns.h"
-#include "cJSON.h"
+#include "esp_mac.h"
+#include "esp_wifi.h"
+#include "nvs_preferences.h"
+#include "home_json.h"
 #include "home_wifi.h"
 
-/* The examples use WiFi configuration that you can set via project configuration menu
-
-   If you'd rather not, just change the below entries to strings with
-   the config you want - ie #define EXAMPLE_WIFI_SSID "mywifissid"
-*/
+ESP_EVENT_DEFINE_BASE(HOME_WIFI_EVENT);
 #define WIFI_SSID      CONFIG_ESP_WIFI_SSID
 #define WIFI_PASS      CONFIG_ESP_WIFI_PASSWORD
 #define WIFI_MAXIMUM_RETRY  CONFIG_ESP_MAXIMUM_RETRY
@@ -49,55 +44,18 @@
 
 #define MDNS_INSTANCE "esp home web server"
 
-#define TAG "home_wifi_station"
+#define TAG "home_wifi"
+#define NVSGROUP "wifi"
+#define MUTEX_TAKE_TICK_PERIOD 1000 / portTICK_PERIOD_MS
 
 static wifiConfig_t wifiConfig;
 static int s_retry_num = 0;
 static esp_ip4_addr_t iPv4;
+static SemaphoreHandle_t xMutex;
+static nvs_handle_t pHandle = 0;
+static esp_netif_t *netif = NULL;
 
-static void initialise_mdns(const char *hostname)
-{
-    mdns_init();
-    mdns_hostname_set(hostname);
-    mdns_instance_name_set(MDNS_INSTANCE);
-
-    mdns_txt_item_t serviceTxtData[] = {
-        {"board", "esp32"},
-        {"path", "/"}
-    };
-
-    ESP_ERROR_CHECK(mdns_service_add("ESP32-WebServer", "_http", "_tcp", 80, serviceTxtData,
-                                     sizeof(serviceTxtData) / sizeof(serviceTxtData[0])));
-}
-
-static void initialise_netbiosns(const char *hostname)
-{
-    netbiosns_init();
-    netbiosns_set_name(hostname);
-}
-
-static void wifiEventHandler(void* arg, esp_event_base_t event_base,
-                                int32_t event_id, void* event_data)
-{
-    if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_START) {
-        esp_wifi_connect();
-    } else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_DISCONNECTED) {
-        if (s_retry_num < WIFI_MAXIMUM_RETRY) {
-            esp_wifi_connect();
-            s_retry_num++;
-            ESP_LOGI(TAG, "retry to connect to the AP");
-        } else {
-            ESP_LOGI(TAG, "failed to connect to SSID: %s, password: %s", WIFI_SSID, WIFI_PASS);
-        }
-        //ESP_LOGI(TAG,"Connect to the AP fail");
-    } else if (event_base == IP_EVENT && event_id == IP_EVENT_STA_GOT_IP) {
-        ip_event_got_ip_t* event = (ip_event_got_ip_t*) event_data;
-        iPv4 = event->ip_info.ip;
-        ESP_LOGI(TAG, "connected to AP SSID: %s, password: %s", WIFI_SSID, WIFI_PASS);
-        ESP_LOGI(TAG, "got ip: " IPSTR, IP2STR(&iPv4));
-        s_retry_num = 0;
-    }
-}
+//wifiState_t wifiState;
 
 BaseType_t getMAC(uint8_t *mac){
     esp_err_t ret = esp_wifi_get_mac(0, mac); // для WIFI Station
@@ -114,6 +72,169 @@ BaseType_t getIPv4Str(char * iPv4Str){
     return pdTRUE;
 }
 
+static void initializeMdns(const char *hostname)
+{
+    mdns_service_remove("_http", "_tcp");
+    mdns_init();
+    mdns_hostname_set(hostname);
+    mdns_instance_name_set(MDNS_INSTANCE);
+
+    mdns_txt_item_t serviceTxtData[] = {
+        {"board", "esp32"},
+        {"path", "/"}
+    };
+
+    ESP_ERROR_CHECK(mdns_service_add(MDNS_INSTANCE, "_http", "_tcp", 80, serviceTxtData,
+                                    sizeof(serviceTxtData) / sizeof(serviceTxtData[0])));
+}
+
+static void initializeNetbiosns(const char *hostname)
+{
+    netbiosns_init();
+    netbiosns_set_name(hostname);
+}
+
+static void eventPost(int32_t eventId)
+{
+    esp_err_t err = esp_event_post(HOME_WIFI_EVENT, eventId, NULL, 0, portMAX_DELAY);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to post event to \"%s\" #%ld: %d (%s)", HOME_WIFI_EVENT, eventId, err, esp_err_to_name(err));
+    };
+}
+
+static void wifiEventHandler(void* arg, esp_event_base_t event_base,
+                                int32_t event_id, void* event_data)
+{
+    if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_AP_START) {
+        eventPost(HOME_WIFI_EVENT_START);
+    } 
+    else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_START) {
+        esp_wifi_connect();
+    } 
+    else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_DISCONNECTED) {
+        if (s_retry_num < WIFI_MAXIMUM_RETRY) {
+            esp_wifi_connect();
+            s_retry_num++;
+            ESP_LOGI(TAG, "retry to connect to the AP");
+        } else {
+            ESP_LOGI(TAG, "failed to connect to SSID: %s, password: %s", wifiConfig.ssid, wifiConfig.password);
+        }
+    }
+    else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_AP_STACONNECTED) {
+        wifi_event_ap_staconnected_t* event = (wifi_event_ap_staconnected_t*) event_data;
+        ESP_LOGI(TAG, "station "MACSTR" join, AID=%d",
+                 MAC2STR(event->mac), event->aid);
+    } 
+    else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_AP_STADISCONNECTED) {
+        wifi_event_ap_stadisconnected_t* event = (wifi_event_ap_stadisconnected_t*) event_data;
+        ESP_LOGI(TAG, "station "MACSTR" leave, AID=%d, reason=%d",
+                 MAC2STR(event->mac), event->aid, event->reason);
+    }
+    else if (event_base == IP_EVENT && event_id == IP_EVENT_STA_GOT_IP) {
+        ip_event_got_ip_t* event = (ip_event_got_ip_t*) event_data;
+        iPv4 = event->ip_info.ip;
+        ESP_LOGI(TAG, "connected to AP SSID: %s, password: %s", WIFI_SSID, WIFI_PASS);
+        ESP_LOGI(TAG, "got ip: " IPSTR, IP2STR(&iPv4));
+        s_retry_num = 0;
+        eventPost(HOME_WIFI_EVENT_START);
+    }
+}
+
+static BaseType_t initializeWifi(void)
+{
+    char modeStr[8];
+    if (wifiConfig.mode == WIFI_MODE_AP)
+        strlcpy(modeStr, "soft-ap", sizeof(modeStr));
+    else if (wifiConfig.mode == WIFI_MODE_STA)
+        strlcpy(modeStr, "station", sizeof(modeStr));
+    else
+        strlcpy(modeStr, "unknow", sizeof(modeStr));
+
+    ESP_LOGI(TAG, "Initializing wifi %s", modeStr);
+
+    initializeMdns(wifiConfig.hostname);
+    initializeNetbiosns(wifiConfig.hostname);
+
+    if (netif != NULL) {
+        ESP_LOGI(TAG, "Wifi %s deinit begin...", modeStr);
+        ESP_ERROR_CHECK(esp_wifi_stop());
+        ESP_ERROR_CHECK(esp_wifi_deinit());
+        esp_netif_destroy_default_wifi(netif);
+        netif = NULL;
+        ESP_LOGI(TAG, "Wifi %s deinit complite", modeStr);
+    }
+
+    if (wifiConfig.mode == WIFI_MODE_AP)
+        netif = esp_netif_create_default_wifi_ap();
+    else if (wifiConfig.mode == WIFI_MODE_STA)
+        netif = esp_netif_create_default_wifi_sta();
+    else {
+        ESP_LOGE(TAG, "Wifi init fail: unknow mode: %s", modeStr);
+        return pdFALSE;
+    }
+    esp_netif_set_hostname(netif, wifiConfig.hostname);
+
+    wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
+    ESP_ERROR_CHECK(esp_wifi_init(&cfg));
+
+    if (wifiConfig.mode == WIFI_MODE_AP) {
+        wifi_config_t wifi_config = {
+            .ap = {
+                .ssid_len = strlen(wifiConfig.ssid),
+                .channel = 11,
+                .max_connection = 5,
+#ifdef CONFIG_ESP_WIFI_SOFTAP_SAE_SUPPORT
+                .authmode = WIFI_AUTH_WPA3_PSK,
+                .sae_pwe_h2e = WPA3_SAE_PWE_BOTH,
+#else // CONFIG_ESP_WIFI_SOFTAP_SAE_SUPPORT
+                .authmode = WIFI_AUTH_WPA2_PSK,
+#endif
+                .pmf_cfg = {
+                        .required = true,
+                },
+            },
+        };
+        strlcpy((char *)wifi_config.ap.ssid, wifiConfig.ssid, sizeof(wifi_config.ap.ssid));
+        strlcpy((char *)wifi_config.ap.password, wifiConfig.password, sizeof(wifi_config.ap.password));
+
+        if (strlen(wifiConfig.password) < 8) {
+            wifi_config.ap.authmode = WIFI_AUTH_OPEN;
+        }
+
+        ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_AP));
+        ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &wifi_config));
+    }
+    else if (wifiConfig.mode == WIFI_MODE_STA) {
+        wifi_config_t wifi_config = {
+            .sta = {
+                .threshold.authmode = ESP_WIFI_SCAN_AUTH_MODE_THRESHOLD,
+                .sae_pwe_h2e = ESP_WIFI_SAE_MODE,
+                .sae_h2e_identifier = EXAMPLE_H2E_IDENTIFIER,
+            },
+        };
+        strlcpy((char *)wifi_config.sta.ssid, wifiConfig.ssid, sizeof(wifi_config.sta.ssid));
+        strlcpy((char *)wifi_config.sta.password, wifiConfig.password, sizeof(wifi_config.sta.password));
+        ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA) );
+        ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_config));
+    }
+    else {
+        ESP_LOGE(TAG, "Wifi init fail: unknow mode: %s", modeStr);
+        return pdFALSE;
+    }
+
+    s_retry_num = 0;
+    if (esp_wifi_start() == ESP_OK) {
+        ESP_LOGI(TAG, "Wifi %s initialized complite. ssid: %s, password:%s", 
+            modeStr, wifiConfig.ssid, wifiConfig.password);
+        return pdTRUE;
+    }
+    else {
+        ESP_LOGE(TAG, "Wifi %s initialize failed. ssid: %s, password:%s", 
+            modeStr, wifiConfig.ssid, wifiConfig.password);
+        return pdFALSE;
+    }
+}
+
 wifiConfig_t * getWifiConfig()
 {
     return &wifiConfig;
@@ -124,7 +245,7 @@ const char * getJsonWifiConfig()
     // payload
     cJSON *root = cJSON_CreateObject();
     
-    cJSON_AddNumberToObject(root, "type", wifiConfig.type);
+    cJSON_AddNumberToObject(root, "mode", wifiConfig.mode);
     cJSON_AddStringToObject(root, "ip", wifiConfig.ip);
     cJSON_AddStringToObject(root, "hostname", wifiConfig.hostname); 
     cJSON_AddStringToObject(root, "ssid", wifiConfig.ssid); 
@@ -135,43 +256,83 @@ const char * getJsonWifiConfig()
     return jsonConfig;
 }
 
-BaseType_t saveWifiConfig(wifiConfig_t *pMqttConfig)
-{
+static BaseType_t wifiConfigure()
+{    
+    ESP_LOGI(TAG, "Setting wifi config...");
+    if(xSemaphoreTake( xMutex, MUTEX_TAKE_TICK_PERIOD ) != pdTRUE) {
+        ESP_LOGW(TAG, "Failed setting wifi config");
+        return pdFALSE;
+    }
+    nvsOpen(NVSGROUP, NVS_READONLY, &pHandle);
+    getUInt8Pref(pHandle, "wifi.mode", &(wifiConfig.mode));
+    getStrPref(pHandle, "wifi.ip", wifiConfig.ip, sizeof(wifiConfig.ip));
+    getStrPref(pHandle, "wifi.hostname", wifiConfig.hostname, sizeof(wifiConfig.hostname));
+    getStrPref(pHandle, "wifi.ssid", wifiConfig.ssid, sizeof(wifiConfig.ssid));
+    getStrPref(pHandle, "wifi.password", wifiConfig.password, sizeof(wifiConfig.password));
+    nvs_close(pHandle);
+    xSemaphoreGive(xMutex);
+    ESP_LOGI(TAG, "Wifi config complite");
+
     return pdTRUE;
+} 
+
+BaseType_t saveWifiConfig(wifiConfig_t *pWifiConfig)
+{
+    ESP_LOGI(TAG, "Saving wifi config...");
+    if(xSemaphoreTake( xMutex, MUTEX_TAKE_TICK_PERIOD ) != pdTRUE) {
+        ESP_LOGW(TAG, "Failed saving wifi config");
+        return pdFALSE;
+    }
+    nvsOpen(NVSGROUP, NVS_READWRITE, &pHandle);
+    setUInt8Pref(pHandle, "wifi.mode", pWifiConfig->mode);
+    setStrPref(pHandle, "wifi.ip", pWifiConfig->ip);
+    setStrPref(pHandle, "wifi.hostname", pWifiConfig->hostname);
+    setStrPref(pHandle, "wifi.ssid", pWifiConfig->ssid);
+    setStrPref(pHandle, "wifi.password", pWifiConfig->password);
+    nvs_close(pHandle);
+    xSemaphoreGive(xMutex);
+    ESP_LOGI(TAG, "Wifi config saved");
+
+    wifiConfigure();
+    return initializeWifi();
+}
+
+BaseType_t setWifiDefaultPreferences() 
+{
+    ESP_LOGI(TAG, "Setting default preference of wifi");
+    wifiConfig_t *pWifiConfig = malloc(sizeof(wifiConfig_t));
+ 
+    pWifiConfig->mode = WIFI_MODE_AP;
+    strlcpy(pWifiConfig->ip, "192.168.81.1", sizeof(pWifiConfig->ip));
+    strlcpy(pWifiConfig->hostname, "Audiomatrix", sizeof(pWifiConfig->hostname));    
+    strlcpy(pWifiConfig->ssid, "audiomatrix", sizeof(pWifiConfig->ssid));
+    strlcpy(pWifiConfig->password, "12345678", sizeof(pWifiConfig->password));
+    saveWifiConfig(pWifiConfig);
+    free(pWifiConfig);
+    return pdTRUE; 
 }
 
 void wifiStationInit(void)
 {
+    static StaticSemaphore_t xSemaphoreBuffer;
+    xMutex = xSemaphoreCreateMutexStatic(&xSemaphoreBuffer);
+
     ESP_ERROR_CHECK(esp_netif_init());
-
-    initialise_mdns(CONFIG_MDNS_HOST_NAME);
-    initialise_netbiosns(CONFIG_MDNS_HOST_NAME);
-
-    esp_netif_t *netif = esp_netif_create_default_wifi_sta();
-    esp_netif_set_hostname(netif, CONFIG_MDNS_HOST_NAME);
-
-    wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
-    ESP_ERROR_CHECK(esp_wifi_init(&cfg));
-
     ESP_ERROR_CHECK(esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID, &wifiEventHandler, NULL));
     ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, &wifiEventHandler, NULL));
 
-    wifi_config_t wifi_config = {
-        .sta = {
-            .ssid = WIFI_SSID,
-            .password = WIFI_PASS,
-            /* Authmode threshold resets to WPA2 as default if password matches WPA2 standards (password len => 8).
-             * If you want to connect the device to deprecated WEP/WPA networks, Please set the threshold value
-             * to WIFI_AUTH_WEP/WIFI_AUTH_WPA_PSK and set the password with length and format matching to
-             * WIFI_AUTH_WEP/WIFI_AUTH_WPA_PSK standards.
-             */
-            .threshold.authmode = ESP_WIFI_SCAN_AUTH_MODE_THRESHOLD,
-            .sae_pwe_h2e = ESP_WIFI_SAE_MODE,
-            .sae_h2e_identifier = EXAMPLE_H2E_IDENTIFIER,
-        },
-    };
-    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA) );
-    ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_config) );
-    ESP_ERROR_CHECK(esp_wifi_start() );
-    ESP_LOGI(TAG, "wifi_init_sta finished.");
+    //setWifiDefaultPreferences();
+    //return;
+
+    if(nvsOpen(NVSGROUP, NVS_READONLY, &pHandle) != pdTRUE ) {
+        ESP_LOGW(TAG, "Namespace '%s' notfound", NVSGROUP);
+        setWifiDefaultPreferences();
+    }
+    else {
+        nvs_close(pHandle);
+        wifiConfigure();
+        initializeWifi();
+    }
+
+    ESP_LOGI(TAG, "wifi_init finished.");
 }
