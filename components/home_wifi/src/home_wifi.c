@@ -202,6 +202,15 @@ static BaseType_t initializeWifi(void)
         }
 
         ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_AP));
+
+        ESP_ERROR_CHECK(esp_netif_dhcps_stop(netif));
+        esp_netif_ip_info_t ipInfo;
+        ipInfo.gw.addr = wifiConfig.ipaddr.addr;
+        ipInfo.ip.addr = wifiConfig.ipaddr.addr;
+        ipInfo.netmask.addr = ESP_IP4TOADDR(255, 255, 255, 0);
+        ESP_ERROR_CHECK(esp_netif_set_ip_info(netif, &ipInfo));
+        ESP_ERROR_CHECK(esp_netif_dhcps_start(netif));
+
         ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &wifi_config));
     }
     else if (wifiConfig.mode == WIFI_MODE_STA) {
@@ -243,10 +252,12 @@ wifiConfig_t * getWifiConfig()
 const char * getJsonWifiConfig()
 {
     // payload
+    char ip4[16];
+    snprintf(ip4, sizeof(ip4), IPSTR, IP2STR(&(&wifiConfig)->ipaddr));
     cJSON *root = cJSON_CreateObject();
     
     cJSON_AddNumberToObject(root, "mode", wifiConfig.mode);
-    cJSON_AddStringToObject(root, "ip", wifiConfig.ip);
+    cJSON_AddStringToObject(root, "ip", ip4);
     cJSON_AddStringToObject(root, "hostname", wifiConfig.hostname); 
     cJSON_AddStringToObject(root, "ssid", wifiConfig.ssid); 
     cJSON_AddStringToObject(root, "password", wifiConfig.password); 
@@ -264,13 +275,14 @@ static BaseType_t wifiConfigure()
         return pdFALSE;
     }
     nvsOpen(NVSGROUP, NVS_READONLY, &pHandle);
-    getUInt8Pref(pHandle, "wifi.mode", &(wifiConfig.mode));
-    getStrPref(pHandle, "wifi.ip", wifiConfig.ip, sizeof(wifiConfig.ip));
-    getStrPref(pHandle, "wifi.hostname", wifiConfig.hostname, sizeof(wifiConfig.hostname));
-    getStrPref(pHandle, "wifi.ssid", wifiConfig.ssid, sizeof(wifiConfig.ssid));
-    getStrPref(pHandle, "wifi.password", wifiConfig.password, sizeof(wifiConfig.password));
+    getUInt8Pref(pHandle, NVSKEY_WIFI_MODE, &(wifiConfig.mode));
+    getUInt32Pref(pHandle, NVSKEY_WIFI_IPADDR, &(wifiConfig.ipaddr.addr));
+    getStrPref(pHandle, NVSKEY_WIFI_HOSTNAME, wifiConfig.hostname, sizeof(wifiConfig.hostname));
+    getStrPref(pHandle, NVSKEY_WIFI_SSID, wifiConfig.ssid, sizeof(wifiConfig.ssid));
+    getStrPref(pHandle, NVSKEY_WIFI_PASSWORD, wifiConfig.password, sizeof(wifiConfig.password));
     nvs_close(pHandle);
     xSemaphoreGive(xMutex);
+
     ESP_LOGI(TAG, "Wifi config complite");
 
     return pdTRUE;
@@ -279,16 +291,24 @@ static BaseType_t wifiConfigure()
 BaseType_t saveWifiConfig(wifiConfig_t *pWifiConfig)
 {
     ESP_LOGI(TAG, "Saving wifi config...");
+
+    if (pWifiConfig->ipaddr.addr == 0) {
+        int res = sscanf(pWifiConfig->ip, STRIP, STR2IPPOINT((pWifiConfig)->ipaddr));
+        if (res != 4) {
+            ESP_LOGE(TAG, "Failed saving wifi config: ip '%s' not parsed", pWifiConfig->ip);
+            return pdFALSE;
+        }
+    }
     if(xSemaphoreTake( xMutex, MUTEX_TAKE_TICK_PERIOD ) != pdTRUE) {
-        ESP_LOGW(TAG, "Failed saving wifi config");
+        ESP_LOGE(TAG, "Failed saving wifi config: mutex not taked");
         return pdFALSE;
     }
     nvsOpen(NVSGROUP, NVS_READWRITE, &pHandle);
-    setUInt8Pref(pHandle, "wifi.mode", pWifiConfig->mode);
-    setStrPref(pHandle, "wifi.ip", pWifiConfig->ip);
-    setStrPref(pHandle, "wifi.hostname", pWifiConfig->hostname);
-    setStrPref(pHandle, "wifi.ssid", pWifiConfig->ssid);
-    setStrPref(pHandle, "wifi.password", pWifiConfig->password);
+    setUInt8Pref(pHandle, NVSKEY_WIFI_MODE, pWifiConfig->mode);
+    setUInt32Pref(pHandle, NVSKEY_WIFI_IPADDR, pWifiConfig->ipaddr.addr);
+    setStrPref(pHandle, NVSKEY_WIFI_HOSTNAME, pWifiConfig->hostname);
+    setStrPref(pHandle, NVSKEY_WIFI_SSID, pWifiConfig->ssid);
+    setStrPref(pHandle, NVSKEY_WIFI_PASSWORD, pWifiConfig->password);
     nvs_close(pHandle);
     xSemaphoreGive(xMutex);
     ESP_LOGI(TAG, "Wifi config saved");
@@ -303,7 +323,7 @@ BaseType_t setWifiDefaultPreferences()
     wifiConfig_t *pWifiConfig = malloc(sizeof(wifiConfig_t));
  
     pWifiConfig->mode = WIFI_MODE_AP;
-    strlcpy(pWifiConfig->ip, "192.168.81.1", sizeof(pWifiConfig->ip));
+    pWifiConfig->ipaddr.addr = ESP_IP4TOADDR(192, 168, 81, 1);
     strlcpy(pWifiConfig->hostname, "Audiomatrix", sizeof(pWifiConfig->hostname));    
     strlcpy(pWifiConfig->ssid, "audiomatrix", sizeof(pWifiConfig->ssid));
     strlcpy(pWifiConfig->password, "12345678", sizeof(pWifiConfig->password));
@@ -320,9 +340,6 @@ void wifiStationInit(void)
     ESP_ERROR_CHECK(esp_netif_init());
     ESP_ERROR_CHECK(esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID, &wifiEventHandler, NULL));
     ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, &wifiEventHandler, NULL));
-
-    //setWifiDefaultPreferences();
-    //return;
 
     if(nvsOpen(NVSGROUP, NVS_READONLY, &pHandle) != pdTRUE ) {
         ESP_LOGW(TAG, "Namespace '%s' notfound", NVSGROUP);

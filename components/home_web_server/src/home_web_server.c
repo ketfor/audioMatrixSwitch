@@ -284,6 +284,7 @@ static BaseType_t wifiSetPostHandler(httpd_req_t *req)
     jsonUInt8Value(jsonWifiConfig, &(pWifiConfig->mode), "mode", wifiConfig->mode);
     if(pWifiConfig->mode != 1 && pWifiConfig->mode != 2) pWifiConfig->mode = 2;
     jsonStrValue(jsonWifiConfig, pWifiConfig->ip, sizeof(pWifiConfig->ip), "ip", wifiConfig->ip);
+    pWifiConfig->ipaddr.addr = 0;
     jsonStrValue(jsonWifiConfig, pWifiConfig->hostname, sizeof(pWifiConfig->hostname), "hostname", wifiConfig->hostname);
     jsonStrValue(jsonWifiConfig, pWifiConfig->ssid, sizeof(pWifiConfig->ssid), "ssid", wifiConfig->ssid);
     jsonStrValue(jsonWifiConfig, pWifiConfig->password, sizeof(pWifiConfig->password), "password", wifiConfig->password);
