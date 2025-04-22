@@ -4,7 +4,7 @@
 #include "esp_log.h"
 #include "nvs_preferences.h"
 
-#define TAG "nvs_preferences"
+static const char *TAG = "nvs_preferences";
 
 BaseType_t nvsOpen(const char* name_group, nvs_open_mode_t open_mode, nvs_handle_t *pHandle)
 {

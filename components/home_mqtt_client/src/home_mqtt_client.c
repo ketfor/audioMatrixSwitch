@@ -8,7 +8,7 @@
 #include "events_types.h"
 #include "audiomatrix.h"
 
-#define TAG "home_mqtt_client"
+static const char *TAG = "home_mqtt_client";
 
 #define NVSGROUP "mqtt"
 

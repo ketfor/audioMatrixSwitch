@@ -44,7 +44,7 @@ ESP_EVENT_DEFINE_BASE(HOME_WIFI_EVENT);
 
 #define MDNS_INSTANCE "esp home web server"
 
-#define TAG "home_wifi"
+static const char *TAG = "home_wifi";
 #define NVSGROUP "wifi"
 #define MUTEX_TAKE_TICK_PERIOD 1000 / portTICK_PERIOD_MS
 

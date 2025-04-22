@@ -10,8 +10,9 @@
 #include "nvs_preferences.h"
 #include "events_types.h"
 #include "audiomatrix.h"
+#include "matrix_spi.h" //74HC595
 
-#define TAG "audiomatrix"
+static const char *TAG = "audiomatrix";
 
 #define NVSGROUP "device"
 #define ONAME "out%d"
@@ -61,6 +62,28 @@ static BaseType_t getDeviceId(char *deviceId){
     if (ret == pdTRUE) 
         sprintf(deviceId, "0x%02x%02x%02x%02x%02x%02x", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
     return ret;
+}
+
+static void sendOutputToMatrix()
+{
+    uint16_t shift = 0;
+    for (int num = OUT_PORTS - 1; num >= 0; num--) {
+        shift <<= 4;
+        switch (device.outputs[num].inputPort) {
+            case 0: 
+                if (num == 0) shift |= 0b0000; else shift |= 0b0101;
+                break;
+            case 1: 
+                if (num == 0) shift |= 0b0101; else shift |= 0b0000;
+                break;
+            case 2: 
+                shift |= 0b1111;
+                break;
+            default:
+            shift |= 0b0000;   
+        }
+    }
+    SendToMatrix(&shift, 1);
 }
 
 static void inputConfigure(uint8_t num)
@@ -144,6 +167,8 @@ static BaseType_t deviceConfigure()
     }
     nvs_close(pHandle);
     xSemaphoreGive(xMutex);
+
+    sendOutputToMatrix();
     ESP_LOGI(TAG, "Device config complite");
 
     ESP_LOGI(TAG, "Posting event \"%s\" #%d:device config changed...", AUDIOMATRIX_EVENT, AUDIOMATRIX_EVENT_CONFIG_CHANGED);
@@ -214,6 +239,7 @@ static BaseType_t setPort(uint8_t numOutput, uint8_t numInput)
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "Failed to post event to \"%s\" #%d: %d (%s)", AUDIOMATRIX_EVENT, AUDIOMATRIX_EVENT_PORT_CHANGED, err, esp_err_to_name(err));
     };
+    sendOutputToMatrix();
     ESP_LOGI(TAG, "The input port number %d is directed to the output port number %d", numInput, numOutput);
     return pdTRUE;
 }
@@ -509,6 +535,8 @@ void audiomatrixInit(void)
         nvs_close(pHandle);
     }
     */
+
+    matrixSpiInit();
 
     static StaticSemaphore_t xSemaphoreBuffer;
     xMutex = xSemaphoreCreateMutexStatic(&xSemaphoreBuffer);

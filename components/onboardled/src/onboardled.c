@@ -9,7 +9,7 @@
 #include "onboardled.h"
 #include "events_types.h"
 
-#define TAG "onboardled"
+static const char *TAG = "onboardled";
 
 #define BLINK_GPIO CONFIG_BLINK_GPIO
 #define BLINK_TICK_PERIOD CONFIG_BLINK_PERIOD / portTICK_PERIOD_MS

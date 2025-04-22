@@ -10,7 +10,6 @@
 #include "home_wifi_event_types.h"
 #include "home_mqtt_client_event_types.h"
 #include "audiomatrix_event_types.h"
-#include "matrix_spi_event_types.h"
 
 #ifdef __cplusplus
 extern "C" {

@@ -11,7 +11,7 @@
 #include "onboardled.h"
 #include "audiomatrix.h"
 
-#define TAG "myapp"
+//static const char *TAG = "myapp";
 
 void systemInit() {
 

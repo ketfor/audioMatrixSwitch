@@ -15,7 +15,7 @@
 #include "home_wifi.h"
 #include "home_mqtt_client.h"
 
-#define TAG "home_web_server"
+static const char *TAG = "home_web_server";
 
 static httpd_handle_t server;
 static bool httpState = false;

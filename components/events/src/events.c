@@ -6,7 +6,7 @@
 #include "esp_log.h"
 #include "events.h"
 
-#define TAG "events"
+static const char *TAG = "events";
 
 typedef struct {
     esp_event_base_t event_base;

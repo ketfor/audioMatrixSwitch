@@ -2,8 +2,7 @@
 #include "esp_log.h"
 #include "home_json.h"
 
-#define TAG "home_json"
-
+//static const char *TAG = "home_json";
 
 const char * JSON_Message(const char *mes )
 {

@@ -8,6 +8,7 @@
 extern "C" {
 #endif
 
+void SendToMatrix(uint16_t *buf, uint8_t sz);
 void matrixSpiInit(void);
 
 #ifdef __cplusplus
