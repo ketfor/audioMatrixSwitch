@@ -4,6 +4,8 @@
 #include "freertos/task.h"
 #include "esp_event.h"
 #include "esp_log.h"
+//#include "esp_https_ota.h"
+#include "esp_ota_ops.h"
 #include "home_wifi.h"
 #include "home_web_server.h"
 #include "home_mqtt_client.h"
@@ -32,4 +34,5 @@ void app_main(void) {
     mqttClientInit();
     wifiStationInit();
     audiomatrixInit();
+    esp_ota_mark_app_valid_cancel_rollback();
 }
