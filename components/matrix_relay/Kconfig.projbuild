@@ -1,4 +1,4 @@
-menu "Matrix SPI configuration "
+menu "Matrix Relay SPI configuration "
 
     config PIN_NUM_MOSI
         int "MOSI pin"

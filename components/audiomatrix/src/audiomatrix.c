@@ -10,7 +10,9 @@
 #include "nvs_preferences.h"
 #include "events_types.h"
 #include "audiomatrix.h"
-#include "matrix_spi.h" //74HC595
+#include "matrix_relay.h" //74HC595
+#include "matrix_lcd.h" //
+#include "onboardled.h"
 
 static const char *TAG = "audiomatrix";
 
@@ -63,7 +65,15 @@ static BaseType_t getDeviceId(char *deviceId){
         sprintf(deviceId, "0x%02x%02x%02x%02x%02x%02x", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
     return ret;
 }
-
+static void sendOutputToDispaly()
+{
+    for (uint8_t num = 0; num < OUT_PORTS; num++) {
+        char line[9];
+        sprintf(line, "%s:%s ", device.outputs[num].shortName, device.inputs[device.outputs[num].inputPort].shortName);
+        lcdSetCursor((num%2)*8, num/2);
+        lcdWriteStr(line);
+    }
+}
 static void sendOutputToMatrix()
 {
     uint16_t shift = 0;
@@ -83,7 +93,8 @@ static void sendOutputToMatrix()
             shift |= 0b0000;   
         }
     }
-    SendToMatrix(&shift, 1);
+    shift = ~shift;
+    sendToRelay(&shift, 1);
 }
 
 static void inputConfigure(uint8_t num)
@@ -169,6 +180,7 @@ static BaseType_t deviceConfigure()
     xSemaphoreGive(xMutex);
 
     sendOutputToMatrix();
+    sendOutputToDispaly();
     ESP_LOGI(TAG, "Device config complite");
 
     ESP_LOGI(TAG, "Posting event \"%s\" #%d:device config changed...", AUDIOMATRIX_EVENT, AUDIOMATRIX_EVENT_CONFIG_CHANGED);
@@ -235,11 +247,13 @@ static BaseType_t setPort(uint8_t numOutput, uint8_t numInput)
     ESP_LOGI(TAG, "Setting input port %d to the out port %d ...", numInput, numOutput);
     output_t *output = &(device.outputs[numOutput]);
     output->inputPort = numInput;
+    sendOutputToMatrix();
+    sendOutputToDispaly();
     esp_err_t err = esp_event_post(AUDIOMATRIX_EVENT, AUDIOMATRIX_EVENT_PORT_CHANGED, &output, sizeof(output), portMAX_DELAY);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "Failed to post event to \"%s\" #%d: %d (%s)", AUDIOMATRIX_EVENT, AUDIOMATRIX_EVENT_PORT_CHANGED, err, esp_err_to_name(err));
     };
-    sendOutputToMatrix();
+    
     ESP_LOGI(TAG, "The input port number %d is directed to the output port number %d", numInput, numOutput);
     return pdTRUE;
 }
@@ -296,7 +310,7 @@ BaseType_t setDefaultPreferences()
         }
         //Name
         snprintf(output->name, sizeof(output->name), "Out%d", (int)num + 1);
-        snprintf(output->shortName, sizeof(output->shortName), "Out%d", (int)num + 1);
+        snprintf(output->shortName, sizeof(output->shortName), "Ou%d", (int)num + 1);
         snprintf(output->longName, sizeof(output->longName), "Out%d", (int)num + 1);
         //InputPort
         if (num == 0) output->inputPort = 1;
@@ -380,7 +394,6 @@ BaseType_t getHaMQTTStateTopic(char *topic, size_t topicSize)
 
 BaseType_t getHaMQTTOutputConfig(uint8_t num, uint8_t class, char *topic, size_t topicSize, char *payload, size_t payloadSize)
 {
-
     output_t *output = &(device.outputs[num]);
 
     // topic
@@ -489,7 +502,6 @@ BaseType_t getHaMQTTOutputConfig(uint8_t num, uint8_t class, char *topic, size_t
 /// @return pdTRUE if OK else pdFALSE
 BaseType_t getHaMQTTDeviceState(char *topic, size_t topicSize, char *payload, size_t payloadSize)
 {
-    
     strlcpy(topic, device.stateTopic, topicSize);
 
     const char * jsonPayload = getDeviceState();
@@ -535,8 +547,9 @@ void audiomatrixInit(void)
         nvs_close(pHandle);
     }
     */
-
-    matrixSpiInit();
+    
+    onboardledInit();
+    matrixRelayInit();
 
     static StaticSemaphore_t xSemaphoreBuffer;
     xMutex = xSemaphoreCreateMutexStatic(&xSemaphoreBuffer);

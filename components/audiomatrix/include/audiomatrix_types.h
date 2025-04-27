@@ -21,7 +21,7 @@ typedef struct {
     uint8_t num;
     char name[16]; // from param
     char formatedName[16]; // by name
-    char shortName[6]; // from param
+    char shortName[4]; // from param
     char longName[32]; // from param
 } input_t;
 
@@ -31,7 +31,7 @@ typedef struct {
     uint8_t num;
     char name[16]; // from param english name
     char formatedName[16]; // by name
-    char shortName[6]; // from param short cyrillic name
+    char shortName[4]; // from param short cyrillic name
     char longName[32]; // from param long cyrillic name
 	char objectId[49]; // by device.name+object.name "sublightkitchen_do_not_disturb" 
     char uniqueId[40]; // device.identifier+object_class+object.name "0xa4c138fe6784_switch_do_not_disturb_z2mone" 

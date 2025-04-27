@@ -1,0 +1,16 @@
+menu "Matrix LCD I2C configuration "
+
+    config PIN_NUM_SDA
+        int "SDA pin"
+        range 0 48
+        default 8
+        help
+            SDA pin
+ 
+    config PIN_NUM_SCL
+        int "SCL pin"
+        range 0 48
+        default 9
+        help
+            SCL pin            
+endmenu

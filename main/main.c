@@ -8,8 +8,8 @@
 #include "home_web_server.h"
 #include "home_mqtt_client.h"
 #include "events.h"
-#include "onboardled.h"
 #include "audiomatrix.h"
+#include "matrix_lcd.h"
 
 //static const char *TAG = "myapp";
 
@@ -24,10 +24,10 @@ void systemInit() {
 }
 
 void app_main(void) {
-
     systemInit();
+    matrixLcdInit();
+    lcdWriteStr("Initializing...");
     eventsInit();
-    onboardledInit();
     webServerInit();
     mqttClientInit();
     wifiStationInit();

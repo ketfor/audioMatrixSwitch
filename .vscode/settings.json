@@ -51,7 +51,13 @@
         "esp_netif_types.h": "c",
         "home_wifi_event_types.h": "c",
         "matrix_spi.h": "c",
-        "cstring": "c"
+        "cstring": "c",
+        "spi_master.h": "c",
+        "esp_err.h": "c",
+        "esp_log.h": "c",
+        "i2c_master.h": "c",
+        "gpio_types.h": "c",
+        "i2c_types.h": "c"
     },
     "idf.flashType": "UART"
 }
