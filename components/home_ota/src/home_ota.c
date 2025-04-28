@@ -21,7 +21,8 @@ void otaTask(void *pvParameter)
 
     esp_http_client_config_t config = {
         //.url = "https://objects.githubusercontent.com/github-production-release-asset-2e65be/962203917/e622b7f2-3246-4aa5-8d33-27be7a3df1da?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=releaseassetproduction%2F20250428%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Date=20250428T172127Z&X-Amz-Expires=300&X-Amz-Signature=fec90fbce6d25673d678907f4fae0b2110de77a881c77a2ee7a7fbbdc7345564&X-Amz-SignedHeaders=host&response-content-disposition=attachment%3B%20filename%3Daudiomatrix_switch-v2.1.0.bin&response-content-type=application%2Foctet-stream",
-        .url = "https://github.com/ketfor/audioMatrixSwitch2/releases/download/v2.1.0/audiomatrix_switch-v2.1.0.bin",
+        //.url = "https://github.com/ketfor/audioMatrixSwitch2/releases/download/v2.1.0/audiomatrix_switch-v2.1.0.bin",
+        .url = "https://raw.githubusercontent.com/ketfor/audioMatrixSwitch2/master/hello_world.bin",
         //.url="https://s1166sas.storage.yandex.net/rdisk/79ca3059a53e406242878a74ca0ad0f35dfd2b0fdbc6755db092b8f06c57b368/680ea569/V1HNym5RHVX5ksF9OmBXSu7qknmEyse8GMIwqGu0JdsWrAQN1ULW_AIKALohPwFZtTt4hJvqjorUoVQjTzyZiQ==?uid=0&filename=audiomatrix_switch.bin&disposition=attachment&hash=Z7o2tSJpF%2BxcI9heNUsAjcUmMXEM5pw8DQXTP6lp4lYQLAuNUJaW%2BGZkRZWbEthDq/J6bpmRyOJonT3VoXnDag%3D%3D&limit=0&content_type=application%2Fx-dosexec&owner_uid=367858930&fsize=1067600&hid=0e4cd773ff745fcced9d92495ab08228&media_type=encoded&tknv=v2&ts=633c97b756c40&s=aeac877694688c1fe027c017bdc17cb20e3b1e2d1c0ff7158c374b6224ac201b&pb=U2FsdGVkX18qjKoHEkvKb6m3qoQzqBZTJVEGjrztwT33NqCS-nQ6Jmu03fzE22SoxHUl7GYgg8JyUnPgijJW9VHqPLhgbBVBh9Z0YX1ZsSk",
         //.url = "https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-reference/system/esp_https_ota.html",
         //.method = HTTP_METHOD_GET,
