@@ -14,6 +14,7 @@
 #include "audiomatrix.h"
 #include "home_wifi.h"
 #include "home_mqtt_client.h"
+#include "home_ota.h"
 
 static const char *TAG = "home_web_server";
 
@@ -86,7 +87,8 @@ static BaseType_t restCommonGetHandler(httpd_req_t *req)
     if (strcmp(req->uri, "/matrix") == 0 ||
             strcmp(req->uri, "/config") == 0 ||
             strcmp(req->uri, "/wifi") == 0 ||
-            strcmp(req->uri, "/mqtt") == 0) 
+            strcmp(req->uri, "/mqtt") == 0 ||
+            strcmp(req->uri, "/update") == 0) 
     {
         strlcat(filepath, req->uri, sizeof(filepath));
         strlcat(filepath, ".html", sizeof(filepath));
@@ -350,6 +352,17 @@ static BaseType_t mqttSetPostHandler(httpd_req_t *req)
     return pdTRUE;
 }
 
+static BaseType_t updatePostHandler(httpd_req_t *req)
+{
+    ESP_LOGI(TAG, "uri: %s", req->uri);
+    
+    doFirmwareUpgrade();
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_sendstr(req, "{}");
+
+    return pdTRUE;
+}
+
 static BaseType_t systemInfoGetHandler(httpd_req_t *req)
 {
     ESP_LOGI(TAG, "uri: %s", req->uri);
@@ -456,6 +469,14 @@ static BaseType_t startWebServer(const char *base_path)
         .user_ctx = rest_context
     };
     httpd_register_uri_handler(server, &mqttSetPostUri);
+
+    httpd_uri_t updatePostUri = {
+        .uri = "/api/v1/update",
+        .method = HTTP_POST,
+        .handler = updatePostHandler,
+        .user_ctx = rest_context
+    };
+    httpd_register_uri_handler(server, &updatePostUri);
 
     httpd_uri_t systemInfoGetUri = {
         .uri = "/api/v1/system/info",

@@ -10,7 +10,8 @@ extern "C" {
 
 typedef enum {
     HOME_WIFI_EVENT_STOP = 0,
-    HOME_WIFI_EVENT_START
+    HOME_WIFI_EVENT_START,
+    HOME_WIFI_EVENT_NTP
 } home_wifi_event_t;
 
 ESP_EVENT_DECLARE_BASE(HOME_WIFI_EVENT);

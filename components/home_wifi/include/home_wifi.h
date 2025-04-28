@@ -14,7 +14,7 @@ wifiConfig_t * getWifiConfig();
 const char * getJsonWifiConfig();
 BaseType_t saveWifiConfig(wifiConfig_t *pMqttConfig);
 
-void wifiStationInit(void);
+void wifiInit(void);
 
 #ifdef __cplusplus
 }

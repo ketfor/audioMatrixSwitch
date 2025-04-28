@@ -1,6 +1,10 @@
 #include <string.h>
+#include <time.h>
 #include "freertos/FreeRTOS.h"
 #include "esp_log.h"
+#include "esp_netif_sntp.h"
+#include "lwip/ip_addr.h"
+#include "esp_sntp.h"
 #include "lwip/apps/netbiosns.h"
 #include "mdns.h"
 #include "esp_mac.h"
@@ -102,10 +106,49 @@ static void eventPost(int32_t eventId)
     };
 }
 
+static void sntpCallBackHandler(struct timeval *tv)
+{
+    struct tm lt;
+    char strftime_buf[64];
+    localtime_r(&tv->tv_sec, &lt);
+    strftime(strftime_buf, sizeof(strftime_buf), "%c", &lt);
+    if (lt.tm_year < (1970 - 1900)) {
+        ESP_LOGW(TAG, "Time synchronization failed!");
+    }
+    else {
+        ESP_LOGI(TAG, "time: %s", strftime_buf);
+        eventPost(HOME_WIFI_EVENT_NTP);
+    }
+}
+
+static void sntpInit()
+{
+    setenv("TZ", "MSK-3", 1);
+    tzset();
+
+    esp_sntp_config_t config = ESP_NETIF_SNTP_DEFAULT_CONFIG("pool.ntp.org");
+    config.start = false;                       // start the SNTP service explicitly (after connecting)
+    config.server_from_dhcp = true;             // accept the NTP offers from DHCP server
+    config.renew_servers_after_new_IP = true;   // let esp-netif update the configured SNTP server(s) after receiving the DHCP lease
+    config.index_of_first_server = 1;           // updates from server num 1, leaving server 0 (from DHCP) intact
+    config.ip_event_to_renew = IP_EVENT_STA_GOT_IP;
+    config.sync_cb = sntpCallBackHandler;
+    esp_netif_sntp_init(&config);
+    esp_netif_sntp_start();
+    /*
+    sntp_setoperatingmode(SNTP_OPMODE_POLL);
+    sntp_set_time_sync_notification_cb(sntpNotify);
+    sntp_setservername(0, "pool.ntp.org");
+    sntp_setservername(1, "ntp1.vniiftri.ru");
+    sntp_init();
+    */
+}
+
 static void wifiEventHandler(void* arg, esp_event_base_t event_base,
                                 int32_t event_id, void* event_data)
 {
     if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_AP_START) {
+        sntpInit();
         eventPost(HOME_WIFI_EVENT_START);
     } 
     else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_START) {
@@ -136,6 +179,7 @@ static void wifiEventHandler(void* arg, esp_event_base_t event_base,
         ESP_LOGI(TAG, "connected to AP SSID: %s, password: %s", WIFI_SSID, WIFI_PASS);
         ESP_LOGI(TAG, "got ip: " IPSTR, IP2STR(&iPv4));
         s_retry_num = 0;
+        sntpInit();
         eventPost(HOME_WIFI_EVENT_START);
     }
 }
@@ -332,7 +376,7 @@ BaseType_t setWifiDefaultPreferences()
     return pdTRUE; 
 }
 
-void wifiStationInit(void)
+void wifiInit(void)
 {
     static StaticSemaphore_t xSemaphoreBuffer;
     xMutex = xSemaphoreCreateMutexStatic(&xSemaphoreBuffer);
