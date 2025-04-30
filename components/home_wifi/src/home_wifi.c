@@ -1,7 +1,9 @@
 #include <string.h>
 #include <time.h>
+#include <sys/time.h>
 #include "freertos/FreeRTOS.h"
 #include "esp_log.h"
+#include "esp_timer.h"
 #include "esp_netif_sntp.h"
 #include "lwip/ip_addr.h"
 #include "esp_sntp.h"
@@ -12,6 +14,7 @@
 #include "nvs_preferences.h"
 #include "home_json.h"
 #include "home_wifi.h"
+#include "time_sync.h"
 
 ESP_EVENT_DEFINE_BASE(HOME_WIFI_EVENT);
 #define WIFI_SSID      CONFIG_ESP_WIFI_SSID
@@ -51,6 +54,7 @@ ESP_EVENT_DEFINE_BASE(HOME_WIFI_EVENT);
 static const char *TAG = "home_wifi";
 #define NVSGROUP "wifi"
 #define MUTEX_TAKE_TICK_PERIOD 1000 / portTICK_PERIOD_MS
+#define TIME_PERIOD (86400000000ULL)
 
 static wifiConfig_t wifiConfig;
 static int s_retry_num = 0;
@@ -106,49 +110,25 @@ static void eventPost(int32_t eventId)
     };
 }
 
-static void sntpCallBackHandler(struct timeval *tv)
+static void setTime()
 {
-    struct tm lt;
-    char strftime_buf[64];
-    localtime_r(&tv->tv_sec, &lt);
-    strftime(strftime_buf, sizeof(strftime_buf), "%c", &lt);
-    if (lt.tm_year < (1970 - 1900)) {
-        ESP_LOGW(TAG, "Time synchronization failed!");
-    }
-    else {
-        ESP_LOGI(TAG, "time: %s", strftime_buf);
-        eventPost(HOME_WIFI_EVENT_NTP);
-    }
-}
+    ESP_LOGI(TAG, "Updating time from NVS");
+    ESP_ERROR_CHECK(update_time_from_nvs());
 
-static void sntpInit()
-{
-    setenv("TZ", "MSK-3", 1);
-    tzset();
+    const esp_timer_create_args_t nvs_update_timer_args = {
+            .callback = (void *)&fetch_and_store_time_in_nvs,
+    };
 
-    esp_sntp_config_t config = ESP_NETIF_SNTP_DEFAULT_CONFIG("pool.ntp.org");
-    config.start = false;                       // start the SNTP service explicitly (after connecting)
-    config.server_from_dhcp = true;             // accept the NTP offers from DHCP server
-    config.renew_servers_after_new_IP = true;   // let esp-netif update the configured SNTP server(s) after receiving the DHCP lease
-    config.index_of_first_server = 1;           // updates from server num 1, leaving server 0 (from DHCP) intact
-    config.ip_event_to_renew = IP_EVENT_STA_GOT_IP;
-    config.sync_cb = sntpCallBackHandler;
-    esp_netif_sntp_init(&config);
-    esp_netif_sntp_start();
-    /*
-    sntp_setoperatingmode(SNTP_OPMODE_POLL);
-    sntp_set_time_sync_notification_cb(sntpNotify);
-    sntp_setservername(0, "pool.ntp.org");
-    sntp_setservername(1, "ntp1.vniiftri.ru");
-    sntp_init();
-    */
+    esp_timer_handle_t nvs_update_timer;
+    ESP_ERROR_CHECK(esp_timer_create(&nvs_update_timer_args, &nvs_update_timer));
+    ESP_ERROR_CHECK(esp_timer_start_periodic(nvs_update_timer, TIME_PERIOD));
 }
 
 static void wifiEventHandler(void* arg, esp_event_base_t event_base,
                                 int32_t event_id, void* event_data)
 {
     if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_AP_START) {
-        sntpInit();
+        setTime();
         eventPost(HOME_WIFI_EVENT_START);
     } 
     else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_START) {
@@ -179,7 +159,7 @@ static void wifiEventHandler(void* arg, esp_event_base_t event_base,
         ESP_LOGI(TAG, "connected to AP SSID: %s, password: %s", WIFI_SSID, WIFI_PASS);
         ESP_LOGI(TAG, "got ip: " IPSTR, IP2STR(&iPv4));
         s_retry_num = 0;
-        sntpInit();
+        setTime();
         eventPost(HOME_WIFI_EVENT_START);
     }
 }
@@ -216,7 +196,7 @@ static BaseType_t initializeWifi(void)
         ESP_LOGE(TAG, "Wifi init fail: unknow mode: %s", modeStr);
         return pdFALSE;
     }
-    esp_netif_set_hostname(netif, wifiConfig.hostname);
+    //esp_netif_set_hostname(netif, wifiConfig.hostname);
 
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
     ESP_ERROR_CHECK(esp_wifi_init(&cfg));
@@ -381,7 +361,6 @@ void wifiInit(void)
     static StaticSemaphore_t xSemaphoreBuffer;
     xMutex = xSemaphoreCreateMutexStatic(&xSemaphoreBuffer);
 
-    ESP_ERROR_CHECK(esp_netif_init());
     ESP_ERROR_CHECK(esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID, &wifiEventHandler, NULL));
     ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, &wifiEventHandler, NULL));
 

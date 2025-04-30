@@ -2,6 +2,7 @@
 #include "nvs_flash.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "esp_netif.h"
 #include "esp_event.h"
 #include "esp_log.h"
 #include "home_wifi.h"
@@ -26,12 +27,13 @@ void systemInit() {
 
 void app_main(void) {
     systemInit();
-    //matrixLcdInit();
-    //lcdWriteStr("Initializing...");
+    matrixLcdInit();
+    lcdWriteStr("Initializing...");
+    ESP_ERROR_CHECK(esp_netif_init());
     eventsInit();
     webServerInit();
-    //mqttClientInit();
+    mqttClientInit();
     wifiInit();
-    //audiomatrixInit();
+    audiomatrixInit();
     otaInit();
 }

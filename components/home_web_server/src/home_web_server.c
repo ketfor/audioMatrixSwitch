@@ -134,9 +134,9 @@ static BaseType_t restCommonGetHandler(httpd_req_t *req)
     } while (read_bytes > 0);
     // Close file after sending complete
     close(fd);
-    ESP_LOGI(TAG, "File sending complete");
     // Respond with an empty chunk to signal HTTP response completion
     httpd_resp_send_chunk(req, NULL, 0);
+    ESP_LOGI(TAG, "File sending complete");
     return pdTRUE;
 }
 
@@ -396,6 +396,7 @@ static BaseType_t startWebServer(const char *base_path)
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     config.stack_size = 8192;
     config.max_uri_handlers = 16;
+    config.lru_purge_enable = true;
     config.uri_match_fn = httpd_uri_match_wildcard;
 
     ESP_LOGI(TAG, "Starting HTTP Server");

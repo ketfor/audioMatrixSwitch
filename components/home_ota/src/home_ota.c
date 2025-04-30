@@ -2,16 +2,12 @@
 #include "esp_log.h"
 #include "esp_https_ota.h"
 #include "esp_ota_ops.h"
-//#include "esp_crt_bundle.h"
-//#include "events_types.h"
 #include "home_ota.h"
 
 static const char *TAG = "home_ota";
 
-extern const char api_cert_start[] asm("_binary_ca_cert_pem_start");
-extern const char api_cert_end[]   asm("_binary_ca_cert_pem_end");
-//extern const char api_global_sign_start[] asm("_binary_globalsign_pem_start");
-//extern const char api_global_sign_end[]   asm("_binary_globalsign_pem_end");
+extern const unsigned char api_cert_start[] asm("_binary_ca_cert_pem_start");
+extern const unsigned char api_cert_end[]   asm("_binary_ca_cert_pem_end");
 
 void otaTask(void *pvParameter)
 {
@@ -19,30 +15,26 @@ void otaTask(void *pvParameter)
 
     esp_err_t ota_finish_err = ESP_OK;
 
+    //ota_finish_err = esp_tls_set_global_ca_store(api_cert_start, api_cert_end - api_cert_start);
+    if (ota_finish_err != ESP_OK) {
+        ESP_LOGE(TAG, "Error in setting the global ca store: [%02X] (%s),could not complete the https_request using global_ca_store", ota_finish_err, esp_err_to_name(ota_finish_err));
+        return;
+    }
+
     esp_http_client_config_t config = {
-        //.url = "https://objects.githubusercontent.com/github-production-release-asset-2e65be/962203917/e622b7f2-3246-4aa5-8d33-27be7a3df1da?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=releaseassetproduction%2F20250428%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Date=20250428T172127Z&X-Amz-Expires=300&X-Amz-Signature=fec90fbce6d25673d678907f4fae0b2110de77a881c77a2ee7a7fbbdc7345564&X-Amz-SignedHeaders=host&response-content-disposition=attachment%3B%20filename%3Daudiomatrix_switch-v2.1.0.bin&response-content-type=application%2Foctet-stream",
         //.url = "https://github.com/ketfor/audioMatrixSwitch2/releases/download/v2.1.0/audiomatrix_switch-v2.1.0.bin",
-        .url = "https://raw.githubusercontent.com/ketfor/audioMatrixSwitch2/master/hello_world.bin",
-        //.url="https://s1166sas.storage.yandex.net/rdisk/79ca3059a53e406242878a74ca0ad0f35dfd2b0fdbc6755db092b8f06c57b368/680ea569/V1HNym5RHVX5ksF9OmBXSu7qknmEyse8GMIwqGu0JdsWrAQN1ULW_AIKALohPwFZtTt4hJvqjorUoVQjTzyZiQ==?uid=0&filename=audiomatrix_switch.bin&disposition=attachment&hash=Z7o2tSJpF%2BxcI9heNUsAjcUmMXEM5pw8DQXTP6lp4lYQLAuNUJaW%2BGZkRZWbEthDq/J6bpmRyOJonT3VoXnDag%3D%3D&limit=0&content_type=application%2Fx-dosexec&owner_uid=367858930&fsize=1067600&hid=0e4cd773ff745fcced9d92495ab08228&media_type=encoded&tknv=v2&ts=633c97b756c40&s=aeac877694688c1fe027c017bdc17cb20e3b1e2d1c0ff7158c374b6224ac201b&pb=U2FsdGVkX18qjKoHEkvKb6m3qoQzqBZTJVEGjrztwT33NqCS-nQ6Jmu03fzE22SoxHUl7GYgg8JyUnPgijJW9VHqPLhgbBVBh9Z0YX1ZsSk",
-        //.url = "https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-reference/system/esp_https_ota.html",
-        //.method = HTTP_METHOD_GET,
-        //.is_async = false,
-        .timeout_ms = 60000,
-        //.disable_auto_redirect = false,
-        //.max_redirection_count = 0,
+        .url = "https://raw.githubusercontent.com/ketfor/audioMatrixSwitch2/main/bin/audiomatrix_switch-v2.1.1.bin",
         .skip_cert_common_name_check = true,
         .cert_pem = (char *)api_cert_start,
-        //.cert_len = api_cert_end - api_cert_start,
+        .cert_len = api_cert_end - api_cert_start,
+        .tls_version = ESP_HTTP_CLIENT_TLS_VER_TLS_1_3,
         .use_global_ca_store = false,
-        //.crt_bundle_attach = esp_crt_bundle_attach,
-        //.transport_type = HTTP_TRANSPORT_OVER_SSL,
-        .keep_alive_enable = true,
-        
+        .keep_alive_enable = true,    
     };
     esp_https_ota_config_t ota_config = {
         .http_config = &config,
         .partial_http_download = true,
-        .max_http_request_size = 1024 * 16
+        .max_http_request_size = 1024 * 128
     };
 
     esp_https_ota_handle_t https_ota_handle = NULL;
@@ -126,18 +118,7 @@ BaseType_t doFirmwareUpgrade()
     return pdTRUE;
 }
 
-/*
-
-static void otaEventHandler(void* arg, esp_event_base_t event_base, int32_t event_id, void* event_data)
-{
-    doFirmwareUpgrade();
-}
-*/
-
 void otaInit(void)
 {
-    //esp_ota_mark_app_valid_cancel_rollback();
-    //vTaskDelay(5000 / portTICK_PERIOD_MS);
-    //doFirmwareUpgrade();
-    //ESP_ERROR_CHECK(esp_event_handler_register(HOME_WIFI_EVENT, HOME_WIFI_EVENT_NTP, &otaEventHandler, NULL));
+    esp_ota_mark_app_valid_cancel_rollback();
 }
