@@ -1,10 +1,6 @@
 #include <string.h>
-#include <time.h>
-#include <sys/time.h>
 #include "freertos/FreeRTOS.h"
 #include "esp_log.h"
-#include "esp_timer.h"
-#include "esp_netif_sntp.h"
 #include "lwip/ip_addr.h"
 #include "esp_sntp.h"
 #include "lwip/apps/netbiosns.h"
@@ -54,7 +50,6 @@ ESP_EVENT_DEFINE_BASE(HOME_WIFI_EVENT);
 static const char *TAG = "home_wifi";
 #define NVSGROUP "wifi"
 #define MUTEX_TAKE_TICK_PERIOD 1000 / portTICK_PERIOD_MS
-#define TIME_PERIOD (86400000000ULL)
 
 static wifiConfig_t wifiConfig;
 static int s_retry_num = 0;
@@ -110,26 +105,17 @@ static void eventPost(int32_t eventId)
     };
 }
 
-static void setTime()
+static void wifiStated()
 {
-    ESP_LOGI(TAG, "Updating time from NVS");
-    ESP_ERROR_CHECK(update_time_from_nvs());
-
-    const esp_timer_create_args_t nvs_update_timer_args = {
-            .callback = (void *)&fetch_and_store_time_in_nvs,
-    };
-
-    esp_timer_handle_t nvs_update_timer;
-    ESP_ERROR_CHECK(esp_timer_create(&nvs_update_timer_args, &nvs_update_timer));
-    ESP_ERROR_CHECK(esp_timer_start_periodic(nvs_update_timer, TIME_PERIOD));
-}
+    setup_periodic_time_updates();
+    eventPost(HOME_WIFI_EVENT_START);
+} 
 
 static void wifiEventHandler(void* arg, esp_event_base_t event_base,
                                 int32_t event_id, void* event_data)
 {
     if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_AP_START) {
-        setTime();
-        eventPost(HOME_WIFI_EVENT_START);
+        wifiStated();
     } 
     else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_START) {
         esp_wifi_connect();
@@ -159,8 +145,7 @@ static void wifiEventHandler(void* arg, esp_event_base_t event_base,
         ESP_LOGI(TAG, "connected to AP SSID: %s, password: %s", WIFI_SSID, WIFI_PASS);
         ESP_LOGI(TAG, "got ip: " IPSTR, IP2STR(&iPv4));
         s_retry_num = 0;
-        setTime();
-        eventPost(HOME_WIFI_EVENT_START);
+        wifiStated();
     }
 }
 
