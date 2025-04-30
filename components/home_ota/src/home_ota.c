@@ -15,19 +15,14 @@ void otaTask(void *pvParameter)
 
     esp_err_t ota_finish_err = ESP_OK;
 
-    //ota_finish_err = esp_tls_set_global_ca_store(api_cert_start, api_cert_end - api_cert_start);
-    if (ota_finish_err != ESP_OK) {
-        ESP_LOGE(TAG, "Error in setting the global ca store: [%02X] (%s),could not complete the https_request using global_ca_store", ota_finish_err, esp_err_to_name(ota_finish_err));
-        return;
-    }
-
     esp_http_client_config_t config = {
-        //.url = "https://github.com/ketfor/audioMatrixSwitch2/releases/download/v2.1.0/audiomatrix_switch-v2.1.0.bin",
-        .url = "https://raw.githubusercontent.com/ketfor/audioMatrixSwitch2/main/bin/audiomatrix_switch-v2.1.1.bin",
+        .url = "https://github.com/ketfor/audioMatrixSwitch2/releases/download/v2.1.0/audiomatrix_switch-v2.1.0.bin",
         .skip_cert_common_name_check = true,
         .cert_pem = (char *)api_cert_start,
         .cert_len = api_cert_end - api_cert_start,
         .tls_version = ESP_HTTP_CLIENT_TLS_VER_TLS_1_3,
+        .buffer_size_tx = 1024,
+        .timeout_ms = 60000,
         .use_global_ca_store = false,
         .keep_alive_enable = true,    
     };
@@ -39,10 +34,12 @@ void otaTask(void *pvParameter)
 
     esp_https_ota_handle_t https_ota_handle = NULL;
     esp_err_t err = esp_https_ota_begin(&ota_config, &https_ota_handle);
+
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "ESP HTTPS OTA Begin failed");
         vTaskDelete(NULL);
     }
+
 
     /*
     esp_app_desc_t app_desc;

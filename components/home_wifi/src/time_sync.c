@@ -30,6 +30,15 @@ static const char *TAG = "time_sync";
 
 #define STORAGE_NAMESPACE "time"
 
+static void showTime(time_t curTime)
+{
+    char strftime_buf[64];
+    struct tm lt;
+    localtime_r(&curTime, &lt);
+    strftime(strftime_buf, sizeof(strftime_buf), "%c", &lt);
+    ESP_LOGI(TAG, "time: %s", strftime_buf);
+}
+
 void initialize_sntp(void)
 {
     ESP_LOGI(TAG, "Initializing SNTP");
@@ -65,6 +74,7 @@ esp_err_t fetch_and_store_time_in_nvs(void *args)
 
     time_t now;
     time(&now);
+    showTime(now);
 
     //Open
     err = nvs_open(STORAGE_NAMESPACE, NVS_READWRITE, &my_handle);
@@ -111,6 +121,7 @@ esp_err_t update_time_from_nvs(void)
     int64_t timestamp = 0;
 
     err = nvs_get_i64(my_handle, "timestamp", &timestamp);
+    showTime((time_t)timestamp);
     if (err == ESP_ERR_NVS_NOT_FOUND) {
         ESP_LOGI(TAG, "Time not found in NVS. Syncing time from SNTP server.");
         if (fetch_and_store_time_in_nvs(NULL) != ESP_OK) {
