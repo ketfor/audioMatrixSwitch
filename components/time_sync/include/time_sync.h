@@ -17,7 +17,7 @@ extern "C" {
  *
  * @return esp_err_t ESP_OK on success, ESP_FAIL on failure.
  */
-esp_err_t update_time_from_nvs(void);
+esp_err_t updateTimeFromNvs(void);
 
 /**
  * @brief Fetch the current system time and store it in NVS.
@@ -28,7 +28,7 @@ esp_err_t update_time_from_nvs(void);
  * @param[in] args Unused argument placeholder.
  * @return esp_err_t ESP_OK on success, ESP_FAIL on failure.
  */
-esp_err_t fetch_and_store_time_in_nvs(void*);
+esp_err_t fetchAndStoreTimeInNvs(void*);
 
 /**
  * @brief Sets up periodic time updates.
@@ -39,7 +39,9 @@ esp_err_t fetch_and_store_time_in_nvs(void*);
  *
  * @return void
  */
-void setup_periodic_time_updates(void);
+void setupPeriodicTimeUpdates(void);
+uint64_t getTimestamp(void);
+
 
 #ifdef __cplusplus
 }

@@ -13,6 +13,7 @@ BaseType_t getIPv4Str(char * iPv4Str);
 wifiConfig_t * getWifiConfig();
 const char * getJsonWifiConfig();
 BaseType_t saveWifiConfig(wifiConfig_t *pMqttConfig);
+BaseType_t updateTime();
 
 void wifiInit(void);
 

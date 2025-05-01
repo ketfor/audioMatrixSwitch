@@ -303,6 +303,20 @@ static BaseType_t wifiSetPostHandler(httpd_req_t *req)
     return pdTRUE;
 }
 
+static BaseType_t wifiUpdateTimePostHandler(httpd_req_t *req)
+{
+    ESP_LOGI(TAG, "uri: %s", req->uri);
+
+    updateTime();
+    
+    httpd_resp_set_type(req, "application/json");
+    
+    const char *jsonNWifiConfig = getJsonWifiConfig();
+    httpd_resp_sendstr(req, jsonNWifiConfig);
+    free((void *)jsonNWifiConfig);
+    return pdTRUE;
+}
+
 static BaseType_t mqttConfigGetHandler(httpd_req_t *req)
 {
     ESP_LOGI(TAG, "uri: %s", req->uri);
@@ -454,6 +468,14 @@ static BaseType_t startWebServer(const char *base_path)
         .user_ctx = rest_context
     };
     httpd_register_uri_handler(server, &wifiSetPostUri);
+
+    httpd_uri_t wifiUpdateTimePostUri = {
+        .uri = "/api/v1/wifi/update_time",
+        .method = HTTP_POST,
+        .handler = wifiUpdateTimePostHandler,
+        .user_ctx = rest_context
+    };
+    httpd_register_uri_handler(server, &wifiUpdateTimePostUri);
     
     httpd_uri_t mqttConfigGetUri = {
         .uri = "/api/v1/mqtt/config",

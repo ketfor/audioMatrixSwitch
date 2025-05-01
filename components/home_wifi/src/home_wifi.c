@@ -107,7 +107,7 @@ static void eventPost(int32_t eventId)
 
 static void wifiStated()
 {
-    setup_periodic_time_updates();
+    setupPeriodicTimeUpdates();
     eventPost(HOME_WIFI_EVENT_START);
 } 
 
@@ -270,6 +270,7 @@ const char * getJsonWifiConfig()
     cJSON_AddStringToObject(root, "hostname", wifiConfig.hostname); 
     cJSON_AddStringToObject(root, "ssid", wifiConfig.ssid); 
     cJSON_AddStringToObject(root, "password", wifiConfig.password); 
+    cJSON_AddNumberToObject(root, "timestamp", getTimestamp()); 
 
     char *jsonConfig = cJSON_Print(root);
     cJSON_Delete(root);
@@ -324,6 +325,15 @@ BaseType_t saveWifiConfig(wifiConfig_t *pWifiConfig)
 
     wifiConfigure();
     return initializeWifi();
+}
+
+BaseType_t updateTime()
+{
+    if (fetchAndStoreTimeInNvs(NULL) != ESP_OK) {
+        return pdFALSE;
+    } else {
+        return pdTRUE;
+    }
 }
 
 BaseType_t setWifiDefaultPreferences() 

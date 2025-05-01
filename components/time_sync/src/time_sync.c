@@ -86,7 +86,7 @@ static esp_err_t obtain_time(void)
  * @param[in] args Unused argument placeholder.
  * @return esp_err_t ESP_OK on success, ESP_FAIL on failure.
  */
-esp_err_t fetch_and_store_time_in_nvs(void *args)
+esp_err_t fetchAndStoreTimeInNvs(void *args)
 {
     nvs_handle_t my_handle = 0;
     esp_err_t err;
@@ -139,7 +139,7 @@ exit:
  *
  * @return esp_err_t ESP_OK on success, ESP_FAIL on failure.
  */
-esp_err_t update_time_from_nvs(void)
+esp_err_t updateTimeFromNvs(void)
 {
     nvs_handle_t my_handle = 0;
     esp_err_t err;
@@ -155,7 +155,7 @@ esp_err_t update_time_from_nvs(void)
     err = nvs_get_i64(my_handle, "timestamp", &timestamp);
     if (err == ESP_ERR_NVS_NOT_FOUND) {
         ESP_LOGI(TAG, "Time not found in NVS. Syncing time from SNTP server.");
-        if (fetch_and_store_time_in_nvs(NULL) != ESP_OK) {
+        if (fetchAndStoreTimeInNvs(NULL) != ESP_OK) {
             err = ESP_FAIL;
         } else {
             err = ESP_OK;
@@ -163,6 +163,8 @@ esp_err_t update_time_from_nvs(void)
     } else if (err == ESP_OK) {
         struct timeval get_nvs_time;
         get_nvs_time.tv_sec = timestamp;
+        setenv("TZ", "MSK-3", 1);
+        tzset();
         settimeofday(&get_nvs_time, NULL);
         showTime((time_t)timestamp);
     }
@@ -183,20 +185,29 @@ exit:
  *
  * @return void
  */
-void setup_periodic_time_updates(void)
+void setupPeriodicTimeUpdates(void)
 {
+    setenv("TZ", "MSK-3", 1);
+    tzset();
     /* Check if the reset reason is power-on, and update time from NVS */
     if (esp_reset_reason() == ESP_RST_POWERON) {
         ESP_LOGI(TAG, "Updating time from NVS");
-        ESP_ERROR_CHECK(update_time_from_nvs());
+        ESP_ERROR_CHECK(updateTimeFromNvs());
     }
 
     /* Set up a periodic timer to fetch and store the time in NVS */
     const esp_timer_create_args_t nvs_update_timer_args = {
-        .callback = (void *) &fetch_and_store_time_in_nvs,
+        .callback = (void *) &fetchAndStoreTimeInNvs,
     };
 
     esp_timer_handle_t nvs_update_timer;
     ESP_ERROR_CHECK(esp_timer_create(&nvs_update_timer_args, &nvs_update_timer));
     ESP_ERROR_CHECK(esp_timer_start_periodic(nvs_update_timer, TIME_PERIOD));
+}
+
+uint64_t getTimestamp(void)
+{
+    time_t now;
+    time(&now);
+    return now;
 }
