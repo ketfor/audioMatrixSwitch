@@ -366,15 +366,50 @@ static BaseType_t mqttSetPostHandler(httpd_req_t *req)
     return pdTRUE;
 }
 
+static BaseType_t responseReleasesInfo(httpd_req_t *req)
+{
+    httpd_resp_set_type(req, "application/json");
+    const char *jsonReleaseInfo = getReleasesInfo();
+    httpd_resp_sendstr(req, jsonReleaseInfo);
+    free((void *)jsonReleaseInfo);
+    return pdTRUE;
+}
+
+static BaseType_t updateReleasesGetHandler(httpd_req_t *req)
+{
+    ESP_LOGI(TAG, "uri: %s", req->uri);
+    return responseReleasesInfo(req);
+}
+
+static BaseType_t updateReleasesCheckGetHandler(httpd_req_t *req)
+{
+    ESP_LOGI(TAG, "uri: %s", req->uri);
+
+    updateReleasesInfo();
+    return responseReleasesInfo(req);
+}
+
 static BaseType_t updatePostHandler(httpd_req_t *req)
 {
     ESP_LOGI(TAG, "uri: %s", req->uri);
     
-    doFirmwareUpgrade();
-    httpd_resp_set_type(req, "application/json");
-    httpd_resp_sendstr(req, "{}");
+    char *buf = ((rest_server_context_t *)(req->user_ctx))->scratch;
+    esp_err_t err = getPostContent(req, buf, SCRATCH_BUFSIZE); 
 
-    return pdTRUE;
+    if (err == -21002) {
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, JSON_Message("Post content too long"));
+        return pdFALSE;
+    }
+    else if (err == -21003) {
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, JSON_Message("Failed to post control value"));
+        return pdFALSE;
+    }
+    
+    char release[32];
+    cJSON *root = cJSON_Parse(buf);
+    jsonStrValue(root, release, sizeof(release), "release", "");
+    if (release[0] == 'v') doFirmwareUpgrade(release);
+    return responseReleasesInfo(req);
 }
 
 static BaseType_t systemInfoGetHandler(httpd_req_t *req)
@@ -492,6 +527,22 @@ static BaseType_t startWebServer(const char *base_path)
         .user_ctx = rest_context
     };
     httpd_register_uri_handler(server, &mqttSetPostUri);
+
+    httpd_uri_t updateReleasesGetUri = {
+        .uri = "/api/v1/update/releases",
+        .method = HTTP_GET,
+        .handler = updateReleasesGetHandler,
+        .user_ctx = rest_context
+    };
+    httpd_register_uri_handler(server, &updateReleasesGetUri);
+
+    httpd_uri_t updateReleasesCheckGetUri = {
+        .uri = "/api/v1/update/releases/check",
+        .method = HTTP_GET,
+        .handler = updateReleasesCheckGetHandler,
+        .user_ctx = rest_context
+    };
+    httpd_register_uri_handler(server, &updateReleasesCheckGetUri);
 
     httpd_uri_t updatePostUri = {
         .uri = "/api/v1/update",

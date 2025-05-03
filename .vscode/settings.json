@@ -59,7 +59,13 @@
         "gpio_types.h": "c",
         "i2c_types.h": "c",
         "esp_crt_bundle.h": "c",
-        "esp_ota_ops.h": "c"
+        "esp_ota_ops.h": "c",
+        "memory": "c",
+        "semaphore": "c",
+        "stop_token": "c",
+        "stdlib.h": "c",
+        "ctype.h": "c",
+        "param.h": "c"
     },
     "idf.flashType": "UART"
 }

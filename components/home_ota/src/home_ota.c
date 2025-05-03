@@ -1,22 +1,158 @@
 #include <string.h>
+#include <sys/param.h>
 #include "esp_log.h"
 #include "esp_https_ota.h"
 #include "esp_ota_ops.h"
+#include "esp_tls.h"
+#include "events.h"
+#include "home_json.h"
 #include "home_ota.h"
+
+#define MAX_TLS_TASK_SIZE 4 * 1024
+#define MAX_OTA_TASK_SIZE 4 * 1024
+#define MAX_RELEASES 5
+#define MAX_RELEASE_SIZE 3200
+#define MAX_HTTP_OUTPUT_BUFFER MAX_RELEASES * MAX_RELEASE_SIZE
+#define HASH_LEN 32
+#define MUTEX_RI_TAKE_TICK_PERIOD portMAX_DELAY
 
 static const char *TAG = "home_ota";
 
 extern const unsigned char api_cert_start[] asm("_binary_ca_cert_pem_start");
 extern const unsigned char api_cert_end[]   asm("_binary_ca_cert_pem_end");
 
+static releaseInfo_t releaseInfo;
+SemaphoreHandle_t xMutexRI = NULL;
+
+esp_err_t httpEventHandler(esp_http_client_event_t *evt)
+{
+    //static char *output_buffer;  // Buffer to store response of http request from event handler
+    static int output_len;       // Stores number of bytes read
+    switch(evt->event_id) {
+        case HTTP_EVENT_ERROR:
+            ESP_LOGD(TAG, "HTTP_EVENT_ERROR");
+            break;
+        case HTTP_EVENT_ON_CONNECTED:
+            ESP_LOGD(TAG, "HTTP_EVENT_ON_CONNECTED");
+            break;
+        case HTTP_EVENT_HEADER_SENT:
+            ESP_LOGD(TAG, "HTTP_EVENT_HEADER_SENT");
+            break;
+        case HTTP_EVENT_ON_HEADER:
+            ESP_LOGD(TAG, "HTTP_EVENT_ON_HEADER, key=%s, value=%s", evt->header_key, evt->header_value);
+            break;
+        case HTTP_EVENT_ON_DATA:
+            ESP_LOGD(TAG, "HTTP_EVENT_ON_DATA, len=%d", evt->data_len);
+            // Clean the buffer in case of a new request
+            if (output_len == 0 && evt->user_data) {
+                // we are just starting to copy the output data into the use
+                memset(evt->user_data, 0, MAX_HTTP_OUTPUT_BUFFER);
+            }
+
+            if (evt->user_data) {
+                if (!esp_http_client_is_chunked_response(evt->client)) {
+                    // If user_data buffer is configured, copy the response into the buffer
+                    int copy_len = 0;
+                    //if (evt->user_data) {
+                        // The last byte in evt->user_data is kept for the NULL character in case of out-of-bound access.
+                        copy_len = MIN(evt->data_len, (MAX_HTTP_OUTPUT_BUFFER - output_len));
+                        if (copy_len) {
+                            memcpy(evt->user_data + output_len, evt->data, copy_len);
+                        }
+                    /*    
+                    } else {
+                        int content_len = esp_http_client_get_content_length(evt->client);
+                        if (output_buffer == NULL) {
+                            // We initialize output_buffer with 0 because it is used by strlen() and similar functions therefore should be null terminated.
+                            output_buffer = (char *) calloc(content_len + 1, sizeof(char));
+                            output_len = 0;
+                            if (output_buffer == NULL) {
+                                ESP_LOGE(TAG, "Failed to allocate memory for output buffer");
+                                return ESP_FAIL;
+                            }
+                        }
+                        copy_len = MIN(evt->data_len, (content_len - output_len));
+                        if (copy_len) {
+                            memcpy(output_buffer + output_len, evt->data, copy_len);
+                        }
+                    }
+                    */
+                    output_len += copy_len;
+                }
+            }
+
+            break;
+        case HTTP_EVENT_ON_FINISH:
+            ESP_LOGD(TAG, "HTTP_EVENT_ON_FINISH");
+            /*
+            if (output_buffer != NULL) {
+                free(output_buffer);
+                output_buffer = NULL;
+            }
+            */
+            output_len = 0;
+            break;
+        case HTTP_EVENT_DISCONNECTED:
+            ESP_LOGI(TAG, "HTTP_EVENT_DISCONNECTED");
+            int mbedtls_err = 0;
+            esp_err_t err = esp_tls_get_and_clear_last_error((esp_tls_error_handle_t)evt->data, &mbedtls_err, NULL);
+            if (err != 0) {
+                ESP_LOGI(TAG, "Last esp error code: 0x%x", err);
+                ESP_LOGI(TAG, "Last mbedtls failure: 0x%x", mbedtls_err);
+            }
+            /*
+            if (output_buffer != NULL) {
+                free(output_buffer);
+                output_buffer = NULL;
+            }
+            */
+            output_len = 0;
+            break;
+        case HTTP_EVENT_REDIRECT:
+            ESP_LOGD(TAG, "HTTP_EVENT_REDIRECT");
+            //esp_http_client_set_header(evt->client, "From", "user@example.com");
+            //esp_http_client_set_header(evt->client, "Accept", "text/html");
+            //esp_http_client_set_redirection(evt->client);
+            break;
+    }
+    return ESP_OK;
+}
+
+void fillCommonConfig(esp_http_client_config_t *config){
+    memset(config, 0, sizeof(esp_http_client_config_t));
+    config->skip_cert_common_name_check = true;
+    config->cert_pem = (char *)api_cert_start;
+    config->cert_len = api_cert_end - api_cert_start;
+    config->tls_version = ESP_HTTP_CLIENT_TLS_VER_TLS_1_3;
+    config->buffer_size_tx = 1024;
+    config->timeout_ms = 60000;
+    config->use_global_ca_store = false;
+    config->keep_alive_enable = true;
+    config->event_handler = httpEventHandler;
+}
+
 void otaTask(void *pvParameter)
 {
-    ESP_LOGI(TAG, "Starting OTA update");
+    const char * release = (const char *)pvParameter;
+    if(xSemaphoreTake(xMutexRI, MUTEX_RI_TAKE_TICK_PERIOD ) != pdTRUE) {
+        ESP_LOGE(TAG, "Failed OTA upgrade releases: mutex not taked");
+        vTaskDelete(NULL);
+    }
+    releaseInfo.otaState = HOME_OTA_UPDATING;
+    xSemaphoreGive(xMutexRI);
+
+    ESP_LOGI(TAG, "Starting OTA upgrade to release %s", release);
+    vTaskDelete(NULL);
 
     esp_err_t ota_finish_err = ESP_OK;
 
-    esp_http_client_config_t config = {
-        .url = "https://github.com/ketfor/audioMatrixSwitch2/releases/download/v2.1.0/audiomatrix_switch-v2.1.0.bin",
+    esp_http_client_config_t config;
+    fillCommonConfig(&config);
+    config.url = "https://github.com/ketfor/audioMatrixSwitch2/releases/download/v2.1.0/audiomatrix_switch-v2.1.0.bin";
+    
+    /*
+    = {
+        .url = ,
         .skip_cert_common_name_check = true,
         .cert_pem = (char *)api_cert_start,
         .cert_len = api_cert_end - api_cert_start,
@@ -26,6 +162,7 @@ void otaTask(void *pvParameter)
         .use_global_ca_store = false,
         .keep_alive_enable = true,    
     };
+    */
     esp_https_ota_config_t ota_config = {
         .http_config = &config,
         .partial_http_download = true,
@@ -39,7 +176,6 @@ void otaTask(void *pvParameter)
         ESP_LOGE(TAG, "ESP HTTPS OTA Begin failed");
         vTaskDelete(NULL);
     }
-
 
     /*
     esp_app_desc_t app_desc;
@@ -68,14 +204,16 @@ void otaTask(void *pvParameter)
 
     if (esp_https_ota_is_complete_data_received(https_ota_handle) != true) {
         // the OTA image was not completely received and user can customise the response to this situation.
-        ESP_LOGE(TAG, "Complete data was not received.");
+        ESP_LOGE(TAG, "Failed OTA upgrade releases: complete data was not received.");
+        vTaskDelete(NULL);
     } else {
         ota_finish_err = esp_https_ota_finish(https_ota_handle);
         if ((err == ESP_OK) && (ota_finish_err == ESP_OK)) {
             ESP_LOGI(TAG, "ESP_HTTPS_OTA upgrade successful. Rebooting ...");
             vTaskDelay(1000 / portTICK_PERIOD_MS);
             esp_restart();
-        } else {
+        } 
+        else {
             if (ota_finish_err == ESP_ERR_OTA_VALIDATE_FAILED) {
                 ESP_LOGE(TAG, "Image validation failed, image is corrupted");
             }
@@ -83,6 +221,13 @@ void otaTask(void *pvParameter)
             vTaskDelete(NULL);
         }
     }
+
+    if(xSemaphoreTake(xMutexRI, MUTEX_RI_TAKE_TICK_PERIOD ) != pdTRUE) {
+        ESP_LOGE(TAG, "Failed OTA upgrade releases: mutex not taked");
+        vTaskDelete(NULL);
+    }
+    releaseInfo.otaState = HOME_OTA_IDLE;
+    xSemaphoreGive(xMutexRI);
 
     /*
 ota_end:
@@ -109,13 +254,206 @@ ota_end:
 
 }
 
-BaseType_t doFirmwareUpgrade()
+static BaseType_t httpsRequest(const char *url, char *buf)
 {
-    xTaskCreate(&otaTask, "otaTask", 1024 * 8, NULL, 5, NULL);
+    esp_http_client_config_t config;
+    fillCommonConfig(&config);
+    config.url = url;
+    config.user_data = buf;
+
+    /*
+    esp_http_client_config_t config = {
+        .url = url,
+        .skip_cert_common_name_check = true,
+        .cert_pem = (char *)api_cert_start,
+        .cert_len = api_cert_end - api_cert_start,
+        .tls_version = ESP_HTTP_CLIENT_TLS_VER_TLS_1_3,
+        .buffer_size_tx = 1024,
+        .timeout_ms = 60000,
+        .use_global_ca_store = false,
+        .keep_alive_enable = true,   
+        .event_handler = httpEventHandler,
+        .user_data = buf,
+    };
+    */
+
+    ESP_LOGI(TAG, "esp_http_client initializing..");
+    esp_http_client_handle_t client = esp_http_client_init(&config);
+    if (!client) {
+        ESP_LOGE(TAG, "Failed to allocate esp_http_client handle!");
+        return pdFALSE;
+    }
+    //ESP_LOGI(TAG, "set URL %s", url);
+    //esp_http_client_set_url(client, url);
+    ESP_LOGI(TAG, "esp_http_client performing");
+
+    esp_err_t err = esp_http_client_perform(client);
+    if (err == ESP_OK) {
+        ESP_LOGI(TAG, "HTTP GET Status = %d, content_length = %"PRId64,
+                esp_http_client_get_status_code(client),
+                esp_http_client_get_content_length(client));
+    } else {
+        ESP_LOGE(TAG, "HTTP GET request failed: %s", esp_err_to_name(err));
+    }
+
+    //ESP_LOGI(TAG, buf);
+
+    //ESP_LOG_BUFFER_HEX(TAG, buf, strlen(buf));
+    //esp_http_client_close(client);
+    esp_http_client_cleanup(client);
     return pdTRUE;
+}       
+
+void httpsRequestGetReleases(void *pvParameter)
+{
+    if(xSemaphoreTake(xMutexRI, MUTEX_RI_TAKE_TICK_PERIOD ) != pdTRUE) {
+        ESP_LOGE(TAG, "Failed request releases: mutex not taked");
+        vTaskDelete(NULL);
+    }
+    // releses from github
+    ESP_LOGI(TAG, "https_request for releases");
+
+    const char *url = "https://api.github.com/repos/ketfor/audioMatrixSwitch2/releases";
+    char buf[MAX_HTTP_OUTPUT_BUFFER];
+    httpsRequest(url, buf);
+    // TOTO parse Releases
+
+    cJSON *root = cJSON_Parse(buf);      
+    int idx = 0;
+    cJSON *jsonRelease = cJSON_GetArrayItem(root, idx);
+    while (jsonRelease && idx < MAX_RELEASES) {
+        release_t *release = &(releaseInfo.releases[idx]);
+        jsonStrValue(jsonRelease, release->releaseName, sizeof(release->releaseName), "name", "");
+        jsonStrValue(jsonRelease, release->releaseUrl, sizeof(release->releaseUrl), "html_url", "");
+        jsonStrValue(jsonRelease, release->tagName, sizeof(release->tagName), "tag_name", "");
+        jsonStrValue(jsonRelease, release->published, sizeof(release->published), "published_at", "");
+        jsonRelease = cJSON_GetArrayItem(root, idx);            
+        idx++;
+        cJSON *jsonAssets = cJSON_GetArrayItem(jsonRelease, 0);
+        if (jsonAssets) {
+            jsonStrValue(jsonAssets, release->fileName, sizeof(release->fileName), "name", "");
+            jsonStrValue(jsonAssets, release->fileUrl, sizeof(release->fileUrl), "browser_download_url", "");      
+        }
+    }
+    cJSON_Delete(root);
+
+    releaseInfo.countReleases = idx;
+    time(&(releaseInfo.lastCheck));
+    xSemaphoreGive(xMutexRI);
+    vTaskDelete(NULL);
 }
 
-void otaInit(void)
+
+const char * getReleasesInfo()
 {
-    esp_ota_mark_app_valid_cancel_rollback();
+    xSemaphoreTake(xMutexRI, MUTEX_RI_TAKE_TICK_PERIOD );
+    ESP_LOGI(TAG, "response release info");
+    cJSON *root = cJSON_CreateObject();
+    cJSON *json_releases, *json_release;
+
+    //inputs
+    json_releases = cJSON_AddArrayToObject(root, "releases");
+    for (uint8_t r = 0; r < releaseInfo.countReleases; r++) {
+        release_t *release = &(releaseInfo.releases[r]);
+
+        cJSON_AddItemToArray(json_releases, json_release = cJSON_CreateObject());
+
+        cJSON_AddStringToObject(json_release, "release_name", release->releaseName);
+        cJSON_AddStringToObject(json_release, "release_url", release->releaseUrl);
+        cJSON_AddStringToObject(json_release, "tag_name", release->tagName);
+        cJSON_AddStringToObject(json_release, "published", release->published);
+        cJSON_AddStringToObject(json_release, "file_url", release->fileUrl);
+        cJSON_AddStringToObject(json_release, "file_name", release->fileName);
+    }    
+
+    cJSON_AddNumberToObject(root, "count_releases", releaseInfo.countReleases);
+    cJSON_AddNumberToObject(root, "last_check", releaseInfo.lastCheck);
+    cJSON_AddStringToObject(root, "current_release", releaseInfo.currentRelease);
+    cJSON_AddNumberToObject(root, "ota_state", releaseInfo.otaState);
+    xSemaphoreGive(xMutexRI);
+
+    char *json = cJSON_Print(root);
+    cJSON_Delete(root);
+    
+    return json;
+}
+
+void doFirmwareUpgrade(const char * release)
+{
+    xTaskCreate (&otaTask, "otaTask", MAX_OTA_TASK_SIZE + MAX_TLS_TASK_SIZE, (void*)release, 5, NULL);
+    vTaskDelay(1000 / portTICK_PERIOD_MS);
+}
+
+
+void updateReleasesInfo()
+{
+    xTaskCreate(&httpsRequestGetReleases, "httpsRequest", MAX_RELEASE_SIZE * MAX_RELEASES + MAX_TLS_TASK_SIZE, NULL, 5, NULL);
+    vTaskDelay(1000 / portTICK_PERIOD_MS);
+}
+
+static void connectHandler(void* arg, esp_event_base_t event_base,
+    int32_t event_id, void* event_data)
+{
+    if (releaseInfo.lastCheck == 0) {
+        updateReleasesInfo();
+    }
+}
+/*
+static void print_sha256(const uint8_t *image_hash, const char *label)
+{
+    char hash_print[HASH_LEN * 2 + 1];
+    hash_print[HASH_LEN * 2] = 0;
+    for (int i = 0; i < HASH_LEN; ++i) {
+        sprintf(&hash_print[i * 2], "%02x", image_hash[i]);
+    }
+    ESP_LOGI(TAG, "%s %s", label, hash_print);
+}
+
+static void get_sha256_of_partitions(void)
+{
+    uint8_t sha_256[HASH_LEN] = { 0 };
+    esp_partition_t partition;
+
+    // get sha256 digest for bootloader
+    partition.address   = ESP_BOOTLOADER_OFFSET;
+    partition.size      = ESP_PARTITION_TABLE_OFFSET;
+    partition.type      = ESP_PARTITION_TYPE_APP;
+    esp_partition_get_sha256(&partition, sha_256);
+    print_sha256(sha_256, "SHA-256 for bootloader: ");
+
+    // get sha256 digest for running partition
+    esp_partition_get_sha256(esp_ota_get_running_partition(), sha_256);
+    print_sha256(sha_256, "SHA-256 for current firmware: ");
+}
+*/
+
+
+
+void otaInit(void)
+{   
+    static StaticSemaphore_t xSemaphoreBuffer;
+    xMutexRI = xSemaphoreCreateMutexStatic(&xSemaphoreBuffer);
+
+    memset(&releaseInfo, 0, sizeof(releaseInfo));
+    const esp_partition_t *running = esp_ota_get_running_partition();
+    esp_app_desc_t running_app_info;
+    if (esp_ota_get_partition_description(running, &running_app_info) == ESP_OK) {
+        ESP_LOGI(TAG, "Running firmware version: %s", running_app_info.version);
+        strlcpy(releaseInfo.currentRelease, running_app_info.version, sizeof(releaseInfo.currentRelease)); 
+    }
+
+#if defined(CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE)
+    esp_ota_img_states_t ota_state;
+    if (esp_ota_get_state_partition(running, &ota_state) == ESP_OK) {
+        if (ota_state == ESP_OTA_IMG_PENDING_VERIFY) {
+            if (esp_ota_mark_app_valid_cancel_rollback() == ESP_OK) {
+                ESP_LOGI(TAG, "App is valid, rollback cancelled successfully");
+            } else {
+                ESP_LOGE(TAG, "Failed to cancel rollback");
+            }
+        }
+    }
+#endif
+
+    ESP_ERROR_CHECK(esp_event_handler_register(HOME_WIFI_EVENT, HOME_WIFI_EVENT_START, &connectHandler, NULL));
 }
