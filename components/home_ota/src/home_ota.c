@@ -329,10 +329,13 @@ void httpsRequestGetReleases(void *pvParameter)
         jsonStrValue(jsonRelease, release->published, sizeof(release->published), "published_at", "");
         jsonRelease = cJSON_GetArrayItem(root, idx);            
         idx++;
-        cJSON *jsonAssets = cJSON_GetArrayItem(jsonRelease, 0);
+        cJSON *jsonAssets = cJSON_GetObjectItem(jsonRelease, "assets");
         if (jsonAssets) {
-            jsonStrValue(jsonAssets, release->fileName, sizeof(release->fileName), "name", "");
-            jsonStrValue(jsonAssets, release->fileUrl, sizeof(release->fileUrl), "browser_download_url", "");      
+            cJSON *jsonAsset = cJSON_GetArrayItem(jsonAssets, 0);
+            if (jsonAsset) {
+                jsonStrValue(jsonAssets, release->fileName, sizeof(release->fileName), "name", "");
+                jsonStrValue(jsonAssets, release->fileUrl, sizeof(release->fileUrl), "browser_download_url", "");      
+            }
         }
     }
     cJSON_Delete(root);
