@@ -405,10 +405,10 @@ static BaseType_t updatePostHandler(httpd_req_t *req)
         return pdFALSE;
     }
     
-    char release[32];
+    uint64_t release;
     cJSON *root = cJSON_Parse(buf);
-    jsonStrValue(root, release, sizeof(release), "release", "");
-    if (release[0] == 'v') doFirmwareUpgrade(release);
+    jsonUInt64Value(root, &release, "release", 0);
+    if (release != 0) doFirmwareUpgrade(release);
     return responseReleasesInfo(req);
 }
 

@@ -10,9 +10,10 @@ extern "C" {
 
 const char * JSON_Message(const char *mes );
 void jsonStrValue(cJSON *json, char *out, size_t outSize, char *param, char *def);
-void jsonUInt8Value(cJSON *json, uint8_t *out, char *param, int def);
-void jsonUInt16Value(cJSON *json, uint16_t *out, char *param, int def);
-void jsonUInt32Value(cJSON *json, uint32_t *out, char *param, int def);
+void jsonUInt8Value(cJSON *json, uint8_t *out, char *param, double def);
+void jsonUInt16Value(cJSON *json, uint16_t *out, char *param, double def);
+void jsonUInt32Value(cJSON *json, uint32_t *out, char *param, double def);
+void jsonUInt64Value(cJSON *json, uint64_t *out, char *param, double def);
 
 #ifdef __cplusplus
 }

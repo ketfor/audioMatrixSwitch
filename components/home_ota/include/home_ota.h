@@ -8,7 +8,7 @@
 extern "C" {
 #endif
 
-void doFirmwareUpgrade(const char * release);
+void doFirmwareUpgrade(uint64_t release);
 void updateReleasesInfo();
 const char * getReleasesInfo();
 void otaInit(void);
