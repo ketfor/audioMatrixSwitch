@@ -266,11 +266,15 @@ void httpsRequestGetReleases(void *pvParameter)
     cJSON *jsonRelease = cJSON_GetArrayItem(root, idx);
     while (jsonRelease && idx < MAX_RELEASES) {
         release_t *release = &(releaseInfo.releases[idx]);
+        char published[21];
+        struct tm tmPublished;
         jsonUInt64Value(jsonRelease, &(release->id), "id", 0);
         jsonStrValue(jsonRelease, release->releaseName, sizeof(release->releaseName), "name", "");
         jsonStrValue(jsonRelease, release->releaseUrl, sizeof(release->releaseUrl), "html_url", "");
         jsonStrValue(jsonRelease, release->tagName, sizeof(release->tagName), "tag_name", "");
-        jsonStrValue(jsonRelease, release->published, sizeof(release->published), "published_at", "");
+        jsonStrValue(jsonRelease, published, sizeof(published), "published_at", "");
+        strptime(published, "%Y-%m-%dT%H:%M:%SZ", &tmPublished);
+        release->published = mktime(&tmPublished);
         
         cJSON *jsonAssets = cJSON_GetObjectItem(jsonRelease, "assets");
         if (jsonAssets) {
@@ -310,7 +314,7 @@ const char * getReleasesInfo()
         cJSON_AddStringToObject(json_release, "release_name", release->releaseName);
         cJSON_AddStringToObject(json_release, "release_url", release->releaseUrl);
         cJSON_AddStringToObject(json_release, "tag_name", release->tagName);
-        cJSON_AddStringToObject(json_release, "published", release->published);
+        cJSON_AddNumberToObject(json_release, "published", release->published);
         cJSON_AddStringToObject(json_release, "file_url", release->fileUrl);
         cJSON_AddStringToObject(json_release, "file_name", release->fileName);
     }    

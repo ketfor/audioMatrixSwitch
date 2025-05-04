@@ -26,7 +26,7 @@ typedef struct {
     char releaseName[32];   // name
     char releaseUrl[256];   // url
     char tagName[32];       // tag_name
-    char published[21];     // published_at
+    time_t published;       // published_at
     char fileUrl[256];      // assets/browser_download_url
     char fileName[64];      // assets/name   
 } release_t;

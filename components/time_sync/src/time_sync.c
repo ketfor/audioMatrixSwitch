@@ -187,15 +187,13 @@ exit:
  */
 void setupPeriodicTimeUpdates(void)
 {
-    setenv("TZ", "MSK-3", 1);
-    tzset();
-    /* Check if the reset reason is power-on, and update time from NVS */
+    // Check if the reset reason is power-on, and update time from NVS
     if (esp_reset_reason() == ESP_RST_POWERON) {
         ESP_LOGI(TAG, "Updating time from NVS");
         ESP_ERROR_CHECK(updateTimeFromNvs());
     }
 
-    /* Set up a periodic timer to fetch and store the time in NVS */
+    // Set up a periodic timer to fetch and store the time in NVS
     const esp_timer_create_args_t nvs_update_timer_args = {
         .callback = (void *) &fetchAndStoreTimeInNvs,
     };
