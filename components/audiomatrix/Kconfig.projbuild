@@ -30,10 +30,10 @@ menu "Audiomatrix configuration"
         help
             Model ID of device
     config AM_DEVICE_IN_PORTS
-    int "Number of input ports"
-    default 3
-    help
-        Number of input ports    
+        int "Number of input ports"
+        default 3
+        help
+            Number of input ports    
     config AM_DEVICE_OUT_PORTS
         int "Number of output ports"
         default 4
@@ -44,11 +44,6 @@ menu "Audiomatrix configuration"
         default "1.0.0"
         help
             Version of device hardware  
-    config AM_DEVICE_SW
-        string "Device software version"
-        default "1.0.0"
-        help
-            Version of device software 
     config AM_CONFIGURATION_URL
         string "Device confuguration URL"
         default "http://audiomatrix.local"

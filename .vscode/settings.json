@@ -65,7 +65,8 @@
         "stop_token": "c",
         "stdlib.h": "c",
         "ctype.h": "c",
-        "param.h": "c"
+        "param.h": "c",
+        "home_ota.h": "c"
     },
     "idf.flashType": "UART"
 }

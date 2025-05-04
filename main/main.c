@@ -31,9 +31,9 @@ void app_main(void) {
     lcdWriteStr("Initializing...");
     ESP_ERROR_CHECK(esp_netif_init());
     eventsInit();
+    otaInit();
     webServerInit();
     mqttClientInit();
     wifiInit();
     audiomatrixInit();
-    otaInit();
 }

@@ -49,8 +49,8 @@ typedef struct {
 	char manufacturer[32]; // from KConfig "Vedrel"
 	char model[32]; // from KConfig "Audiomatrix switch"
 	char modelId[32]; // from KConfig "Audiomatrix switch 3x4"
-    char hwVersion[8]; // from KConfig
-    char swVersion[8]; // from KConfig
+    char hwVersion[32]; // from KConfig
+    char swVersion[32]; // from KConfig
     char configurationUrl[64]; // from param
     char stateTopic[64]; // "z2mone/bridge/state"
     char hassTopic[64]; // "/homeassistant"

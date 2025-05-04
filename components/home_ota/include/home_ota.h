@@ -11,6 +11,7 @@ extern "C" {
 void doFirmwareUpgrade(uint64_t release);
 void updateReleasesInfo();
 const char * getReleasesInfo();
+const char * getCurrentRelease();
 void otaInit(void);
 
 #ifdef __cplusplus

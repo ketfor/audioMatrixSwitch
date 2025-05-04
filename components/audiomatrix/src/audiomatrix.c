@@ -9,6 +9,7 @@
 #include "home_json.h"
 #include "nvs_preferences.h"
 #include "events_types.h"
+#include "home_ota.h"
 #include "audiomatrix.h"
 #include "matrix_relay.h" //74HC595
 #include "matrix_lcd.h" //
@@ -162,7 +163,7 @@ static BaseType_t deviceConfigure()
     strlcpy(device.model, CONFIG_AM_DEVICE_MODEL, sizeof(device.model));
     strlcpy(device.modelId, CONFIG_AM_DEVICE_MODEL_ID, sizeof(device.modelId));
     strlcpy(device.hwVersion, CONFIG_AM_DEVICE_HW, sizeof(device.hwVersion));
-    strlcpy(device.swVersion, CONFIG_AM_DEVICE_SW, sizeof(device.swVersion));
+    strlcpy(device.swVersion, getCurrentRelease(), sizeof(device.swVersion));
     //
     getStrPref(pHandle, "dev.conf_url", device.configurationUrl, sizeof(device.configurationUrl));
     //

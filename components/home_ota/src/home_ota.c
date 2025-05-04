@@ -107,7 +107,7 @@ static release_t * getReleaseById(uint64_t releaseId)
     return NULL;
 }
 
-static esp_err_t validate_version(esp_app_desc_t *new_app_info)
+static esp_err_t validateVersion(esp_app_desc_t *new_app_info)
 {
     if (new_app_info == NULL) {
         return ESP_ERR_INVALID_ARG;
@@ -174,7 +174,7 @@ void otaTask(void *pvParameter)
         setOtaState(HOME_OTA_UPDATE_CANNOT_GET_IMG_DESCR);
         vTaskDelete(NULL);
     }
-    err = validate_version(&app_desc);
+    err = validateVersion(&app_desc);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "ESP_HTTPS_OTA upgrade failed: cannot validate_image_header");
         esp_https_ota_abort(https_ota_handle);
@@ -294,6 +294,11 @@ void httpsRequestGetReleases(void *pvParameter)
     time(&(releaseInfo.lastCheck));
     xSemaphoreGive(xMutexRI);
     vTaskDelete(NULL);
+}
+
+const char * getCurrentRelease()
+{
+    return releaseInfo.currentRelease;
 }
 
 const char * getReleasesInfo()
