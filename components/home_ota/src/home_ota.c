@@ -6,6 +6,7 @@
 #include "esp_tls.h"
 #include "events.h"
 #include "home_json.h"
+#include "matrix_lcd.h"
 #include "home_ota.h"
 
 #define MAX_TLS_TASK_SIZE 5 * 1024
@@ -126,6 +127,19 @@ static void setOtaState(home_ota_state_t otaState){
         releaseInfo.otaState = otaState;
         xSemaphoreGive(xMutexRI);
     }
+    switch (otaState) {
+        case HOME_OTA_IDLE:
+            break;
+        case HOME_OTA_UPDATING:
+            lcdClearScreen();
+            lcdHome();
+            lcdWriteStr("Updating...");
+            break;
+        default:
+            lcdClearScreen();
+            lcdHome();
+            lcdWriteStr("Failed update");
+    }
 }
 
 void otaTask(void *pvParameter)
@@ -174,7 +188,7 @@ void otaTask(void *pvParameter)
         setOtaState(HOME_OTA_UPDATE_CANNOT_GET_IMG_DESCR);
         vTaskDelete(NULL);
     }
-    
+
     /*
     err = validateVersion(&app_desc);
     if (err != ESP_OK) {
