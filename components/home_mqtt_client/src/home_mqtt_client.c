@@ -27,14 +27,16 @@ static nvs_handle_t pHandle = 0;
 static int s_retry_num = 0;
 mqttState_t mqttState;
 static bool mqttClientState = false;;
+static char subcribedStateTopic[64] = "";
 
 static void subscribeState()
 {
-    char topic[64];
-    getHaMQTTStateTopic(topic, sizeof(topic));
-    strlcat(topic, "/set/#", sizeof(topic));
-    ESP_LOGI(TAG, "Subscribe to a topic \"%s\"", topic);
-    esp_mqtt_client_subscribe(client, topic, 0);
+    if (strlen(subcribedStateTopic) != 0)
+        esp_mqtt_client_unsubscribe(client, subcribedStateTopic);
+    getHaMQTTStateTopic(subcribedStateTopic, sizeof(subcribedStateTopic));
+    strlcat(subcribedStateTopic, "/set/#", sizeof(subcribedStateTopic));
+    ESP_LOGI(TAG, "Subscribe to a topic \"%s\"", subcribedStateTopic);
+    esp_mqtt_client_subscribe(client, subcribedStateTopic, 0);
 }
 
 static void publishState()
@@ -59,7 +61,8 @@ static void publishConfig()
             esp_mqtt_client_publish(client, topic, payload, 0, 0, 1);
         }
     }
-    publishState(client);
+    subscribeState();
+    publishState();
 }
 
 static void audiomatrixEventTask(void *pvParameters) 

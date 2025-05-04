@@ -174,6 +174,8 @@ void otaTask(void *pvParameter)
         setOtaState(HOME_OTA_UPDATE_CANNOT_GET_IMG_DESCR);
         vTaskDelete(NULL);
     }
+    
+    /*
     err = validateVersion(&app_desc);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "ESP_HTTPS_OTA upgrade failed: cannot validate_image_header");
@@ -181,6 +183,7 @@ void otaTask(void *pvParameter)
         setOtaState(HOME_OTA_UPDATE_SAME_VERSION);
         vTaskDelete(NULL);
     }
+    */
 
     while (1) {
         err = esp_https_ota_perform(https_ota_handle);
