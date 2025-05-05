@@ -7,6 +7,7 @@
 #include "events.h"
 #include "home_json.h"
 #include "matrix_lcd.h"
+#include "audiomatrix.h"
 #include "home_ota.h"
 
 #define MAX_TLS_TASK_SIZE 5 * 1024
@@ -17,8 +18,10 @@
 #define MAX_URL_SIZE 256
 #define HASH_LEN 32
 #define MUTEX_RI_TAKE_TICK_PERIOD portMAX_DELAY
-#define GITHUB_REPO "audioMatrixSwitch2"
+#define GITHUB_REPO "audioMatrixSwitch"
 #define GITHUB_USER "ketfor"
+#define BUFFSIZE 1024
+#define SKIP_VALIDATE_VERSION
 
 static const char *TAG = "home_ota";
 static const char *GITHUB_RELEASES_URL = "https://api.github.com/repos/%s/%s/releases";
@@ -29,10 +32,23 @@ extern const unsigned char api_cert_end[]   asm("_binary_ca_cert_pem_end");
 static releaseInfo_t releaseInfo;
 SemaphoreHandle_t xMutexRI = NULL;
 
+
+typedef enum {
+    USER_DATA_BUF = 0,
+    USER_DATA_WRITE_PARTITION
+} userDataType_t;
+
+typedef struct {
+    userDataType_t dataType;
+    size_t dataLength;
+    size_t totalDataLength;
+    char *buf;
+    size_t bufSize;
+    esp_partition_t *spiffs_partition;
+} userData_t;
+
 esp_err_t httpEventHandler(esp_http_client_event_t *evt)
 {
-    //static char *output_buffer;  // Buffer to store response of http request from event handler
-    static int output_len;       // Stores number of bytes read
     switch(evt->event_id) {
         case HTTP_EVENT_ERROR:
             ESP_LOGD(TAG, "HTTP_EVENT_ERROR");
@@ -48,26 +64,44 @@ esp_err_t httpEventHandler(esp_http_client_event_t *evt)
             break;
         case HTTP_EVENT_ON_DATA:
             ESP_LOGD(TAG, "HTTP_EVENT_ON_DATA, len=%d", evt->data_len);
-            // Clean the buffer in case of a new request
-            if (output_len == 0 && evt->user_data) {
-                // we are just starting to copy the output data into the use
-                memset(evt->user_data, 0, MAX_HTTP_OUTPUT_BUFFER);
-            }
-
             if (evt->user_data) {
-                if (!esp_http_client_is_chunked_response(evt->client)) {
-                    int copy_len = MIN(evt->data_len, (MAX_HTTP_OUTPUT_BUFFER - output_len));
-                    if (copy_len) {
-                        memcpy(evt->user_data + output_len, evt->data, copy_len);
+                userData_t *userData = (userData_t*)evt->user_data;
+                if (userData->dataType == USER_DATA_BUF) {
+                    if (userData->totalDataLength == 0) {
+                        memset(userData->buf, 0, userData->bufSize);
                     }
-                    output_len += copy_len;
+                    if (!esp_http_client_is_chunked_response(evt->client)) {
+                        userData->dataLength = MIN(evt->data_len, (userData->bufSize - userData->totalDataLength));
+                        if (userData->dataLength) {
+                            memcpy(userData->buf + userData->totalDataLength, evt->data, userData->dataLength);
+                        }
+                        userData->totalDataLength += userData->dataLength;
+                    }
+                }
+                else if(userData->dataType == USER_DATA_WRITE_PARTITION) {
+                    esp_err_t err;
+                    if (userData->totalDataLength == 0) {
+                        err = esp_partition_erase_range(userData->spiffs_partition, 
+                            0, userData->spiffs_partition->size);
+                        if (err != ESP_OK) {
+                            ESP_LOGE(TAG, "esp_partition_erase error: part: %s, offset: %d, length: %lu", userData->spiffs_partition->label, 0, userData->spiffs_partition->size);
+                        }
+                        ESP_LOGI(TAG, "Writing to <%s> partition at offset 0x%lx", userData->spiffs_partition->label, userData->spiffs_partition->address);
+                    }
+                    if (!esp_http_client_is_chunked_response(evt->client)) {
+                        userData->dataLength = evt->data_len;
+                        err = esp_partition_write(userData->spiffs_partition, 
+                            userData->totalDataLength, (const void *)evt->data, userData->dataLength);
+                        if (err != ESP_OK) {
+                            ESP_LOGD(TAG, "error: esp_partition_write to <%s> partition, offset: %d, length:%d", userData->spiffs_partition->label, userData->totalDataLength, userData->dataLength);
+                        }
+                        userData->totalDataLength += userData->dataLength;
+                    }
                 }
             }
-
             break;
         case HTTP_EVENT_ON_FINISH:
             ESP_LOGD(TAG, "HTTP_EVENT_ON_FINISH");
-            output_len = 0;
             break;
         case HTTP_EVENT_DISCONNECTED:
             ESP_LOGI(TAG, "HTTP_EVENT_DISCONNECTED");
@@ -77,7 +111,6 @@ esp_err_t httpEventHandler(esp_http_client_event_t *evt)
                 ESP_LOGI(TAG, "Last esp error code: 0x%x", err);
                 ESP_LOGI(TAG, "Last mbedtls failure: 0x%x", mbedtls_err);
             }
-            output_len = 0;
             break;
         case HTTP_EVENT_REDIRECT:
             ESP_LOGD(TAG, "HTTP_EVENT_REDIRECT");
@@ -92,11 +125,10 @@ static void fillCommonConfig(esp_http_client_config_t *config){
     config->cert_pem = (char *)api_cert_start;
     config->cert_len = api_cert_end - api_cert_start;
     config->tls_version = ESP_HTTP_CLIENT_TLS_VER_TLS_1_3;
-    config->buffer_size_tx = 1024;
+    config->buffer_size_tx = BUFFSIZE;
     config->timeout_ms = 60000;
     config->use_global_ca_store = false;
     config->keep_alive_enable = true;
-    config->event_handler = httpEventHandler;
 }
 
 static release_t * getReleaseById(uint64_t releaseId)
@@ -108,6 +140,7 @@ static release_t * getReleaseById(uint64_t releaseId)
     return NULL;
 }
 
+#ifndef SKIP_VALIDATE_VERSION
 static esp_err_t validateVersion(esp_app_desc_t *new_app_info)
 {
     if (new_app_info == NULL) {
@@ -121,6 +154,7 @@ static esp_err_t validateVersion(esp_app_desc_t *new_app_info)
 
     return ESP_OK;
 }
+#endif
 
 static void setOtaState(home_ota_state_t otaState){
     if(xSemaphoreTake(xMutexRI, MUTEX_RI_TAKE_TICK_PERIOD ) == pdTRUE) {
@@ -128,12 +162,20 @@ static void setOtaState(home_ota_state_t otaState){
         xSemaphoreGive(xMutexRI);
     }
     switch (otaState) {
-        case HOME_OTA_IDLE:
+        case UPDATE_IDLE:
+        case UPDATE_OTA_SUCCESSFULLY:
+        case UPDATE_WWW_SUCCESSFULLY:
+            sendOutputToDispaly();
             break;
-        case HOME_OTA_UPDATING:
+        case UPDATE_OTA_UPDATING:
             lcdClearScreen();
             lcdHome();
-            lcdWriteStr("Updating...");
+            lcdWriteStr("Updating OTA...");
+            break;
+        case UPDATE_WWW_UPDATING:
+            lcdClearScreen();
+            lcdHome();
+            lcdWriteStr("Updating WWW...");
             break;
         default:
             lcdClearScreen();
@@ -142,106 +184,13 @@ static void setOtaState(home_ota_state_t otaState){
     }
 }
 
-void otaTask(void *pvParameter)
-{
-    uint64_t releaseId = (uint64_t)pvParameter;
-    setOtaState(HOME_OTA_UPDATING);
-
-    release_t *release = getReleaseById(releaseId);
-    if (release == NULL) {
-        ESP_LOGE(TAG, "Failed OTA upgrade: release %llu not found", releaseId);
-        setOtaState(HOME_OTA_UPDATE_RELEASE_NOTFOUND);
-        vTaskDelete(NULL);
-    }
-    ESP_LOGI(TAG, "Starting OTA upgrade to release %s", release->releaseName);
-    if (strlen(release->fileUrl) == 0) {
-        ESP_LOGE(TAG, "Failed OTA upgrade: release file_url is empty");
-        setOtaState(HOME_OTA_UPDATE_RELEASE_FILEURL_ISEMPTY);
-        vTaskDelete(NULL);
-    }
-
-    esp_err_t ota_finish_err = ESP_OK;
-    esp_http_client_config_t config;
-    fillCommonConfig(&config);
-    config.url = release->fileUrl;
-
-    esp_https_ota_config_t ota_config = {
-        .http_config = &config,
-        .partial_http_download = true,
-        .max_http_request_size = 1024 * 128
-    };
-
-    esp_https_ota_handle_t https_ota_handle = NULL;
-    esp_err_t err = esp_https_ota_begin(&ota_config, &https_ota_handle);
-
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "ESP HTTPS OTA Begin failed");
-        setOtaState(HOME_OTA_UPDATE_BEGIN_FAIL);
-        vTaskDelete(NULL);
-    }
-
-    esp_app_desc_t app_desc;
-    err = esp_https_ota_get_img_desc(https_ota_handle, &app_desc);
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "ESP_HTTPS_OTA upgrade failed: cannot esp_https_ota_get_img_desc");
-        esp_https_ota_abort(https_ota_handle);
-        setOtaState(HOME_OTA_UPDATE_CANNOT_GET_IMG_DESCR);
-        vTaskDelete(NULL);
-    }
-
-    /*
-    err = validateVersion(&app_desc);
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "ESP_HTTPS_OTA upgrade failed: cannot validate_image_header");
-        esp_https_ota_abort(https_ota_handle);
-        setOtaState(HOME_OTA_UPDATE_SAME_VERSION);
-        vTaskDelete(NULL);
-    }
-    */
-
-    while (1) {
-        err = esp_https_ota_perform(https_ota_handle);
-        if (err != ESP_ERR_HTTPS_OTA_IN_PROGRESS) {
-            break;
-        }
-        // esp_https_ota_perform returns after every read operation which gives user the ability to
-        // monitor the status of OTA upgrade by calling esp_https_ota_get_image_len_read, which gives length of image
-        // data read so far.
-        ESP_LOGD(TAG, "Image bytes read: %d", esp_https_ota_get_image_len_read(https_ota_handle));
-    }
-
-    if (esp_https_ota_is_complete_data_received(https_ota_handle) != true) {
-        // the OTA image was not completely received and user can customise the response to this situation.
-        ESP_LOGE(TAG, "Failed OTA upgrade releases: complete data was not received.");
-        setOtaState(HOME_OTA_UPDATE_NOT_COMPLITE_DATA);
-        vTaskDelete(NULL);
-    } 
-    else {
-        ota_finish_err = esp_https_ota_finish(https_ota_handle);
-        if ((err == ESP_OK) && (ota_finish_err == ESP_OK)) {
-            ESP_LOGI(TAG, "ESP_HTTPS_OTA upgrade successful. Rebooting ...");
-            vTaskDelay(1000 / portTICK_PERIOD_MS);
-            esp_restart();
-        } 
-        else {
-            if (ota_finish_err == ESP_ERR_OTA_VALIDATE_FAILED) {
-                ESP_LOGE(TAG, "Image validation failed, image is corrupted");
-            }
-            ESP_LOGE(TAG, "ESP_HTTPS_OTA upgrade failed 0x%x", ota_finish_err);
-            setOtaState(HOME_OTA_UPDATE_IMAGE_CORRUPTED);
-            vTaskDelete(NULL);
-        }
-    }
-    setOtaState(HOME_OTA_IDLE);
-    vTaskDelete(NULL);
-}
-
-static BaseType_t httpsRequest(const char *url, char *buf)
+static BaseType_t httpsRequest(const char *url, userData_t *userData)
 {
     esp_http_client_config_t config;
     fillCommonConfig(&config);
     config.url = url;
-    config.user_data = buf;
+    config.user_data = userData;
+    config.event_handler = httpEventHandler;
 
     ESP_LOGI(TAG, "esp_http_client initializing..");
     esp_http_client_handle_t client = esp_http_client_init(&config);
@@ -260,10 +209,154 @@ static BaseType_t httpsRequest(const char *url, char *buf)
         ESP_LOGE(TAG, "HTTP GET request failed: %s", esp_err_to_name(err));
     }
     esp_http_client_cleanup(client);
-    return pdTRUE;
-}       
+    return (err == ESP_OK)?pdTRUE:pdFALSE;
+}  
 
-void httpsRequestGetReleases(void *pvParameter)
+static home_ota_state_t otaUpdate(release_t *release)
+{
+    ESP_LOGI(TAG, "Starting OTA upgrade to release %s", release->releaseName);
+    if (strlen(release->fileOtaUrl) == 0) {
+        ESP_LOGE(TAG, "Failed OTA upgrade: release file_url is empty");
+        return UPDATE_OTA_FILEURL_ISEMPTY;
+    }
+
+    esp_err_t ota_finish_err = ESP_OK;
+    esp_http_client_config_t config;
+    fillCommonConfig(&config);
+    config.url = release->fileOtaUrl;
+
+    esp_https_ota_config_t ota_config = {
+        .http_config = &config,
+        .partial_http_download = true,
+        .max_http_request_size = 1024 * 128
+    };
+
+    esp_https_ota_handle_t https_ota_handle = NULL;
+    esp_err_t err = esp_https_ota_begin(&ota_config, &https_ota_handle);
+
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "ESP HTTPS OTA Begin failed");
+        return UPDATE_OTA_BEGIN_FAIL;
+    }
+
+    esp_app_desc_t app_desc;
+    err = esp_https_ota_get_img_desc(https_ota_handle, &app_desc);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "ESP_HTTPS_OTA upgrade failed: cannot esp_https_ota_get_img_desc");
+        esp_https_ota_abort(https_ota_handle);
+        return UPDATE_OTA_CANNOT_GET_IMG_DESCR;
+    }
+
+#ifndef SKIP_VALIDATE_VERSION
+    err = validateVersion(&app_desc);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "ESP_HTTPS_OTA upgrade failed: cannot validate_image_header");
+        esp_https_ota_abort(https_ota_handle);
+        return HOME_OTA_UPDATE_SAME_VERSION;
+    }
+#endif
+
+    while (1) {
+        err = esp_https_ota_perform(https_ota_handle);
+        if (err != ESP_ERR_HTTPS_OTA_IN_PROGRESS) {
+            break;
+        }
+        // esp_https_ota_perform returns after every read operation which gives user the ability to
+        // monitor the status of OTA upgrade by calling esp_https_ota_get_image_len_read, which gives length of image
+        // data read so far.
+        ESP_LOGD(TAG, "Image bytes read: %d", esp_https_ota_get_image_len_read(https_ota_handle));
+    }
+
+    if (esp_https_ota_is_complete_data_received(https_ota_handle) != true) {
+        // the OTA image was not completely received and user can customise the response to this situation.
+        ESP_LOGE(TAG, "ESP_HTTPS_OTA upgrade failed: complete data was not received.");
+        return UPDATE_OTA_NOT_COMPLITE_DATA;
+    } 
+    else {
+        ota_finish_err = esp_https_ota_finish(https_ota_handle);
+        if ((err != ESP_OK) || (ota_finish_err != ESP_OK)) {
+            if (ota_finish_err == ESP_ERR_OTA_VALIDATE_FAILED) {
+                ESP_LOGE(TAG, "ESP_HTTPS_OTA upgrade failed: image validation failed, image is corrupted");
+            }
+            ESP_LOGE(TAG, "ESP_HTTPS_OTA upgrade failed 0x%x", ota_finish_err);
+            return UPDATE_OTA_IMAGE_CORRUPTED;
+        }
+    }
+    ESP_LOGI(TAG, "ESP_HTTPS_OTA upgrade OTA part successful");
+    return UPDATE_OTA_SUCCESSFULLY;
+}
+
+static home_ota_state_t wwwUpdate(release_t *release)
+{
+    esp_err_t err = ESP_OK;
+    esp_partition_t *spiffs_partition = NULL;
+    char ota_write_data[BUFFSIZE + 1] = { 0 };
+    ESP_LOGI(TAG, "Starting upgrade SPIFFS WWW");
+    
+    if (strlen(release->fileWwwUrl) == 0) {
+        ESP_LOGE(TAG, "Failed upgrade SPIFFS WWW: file_url is empty");
+        return UPDATE_WWW_FAIL;
+    }
+    
+    esp_partition_iterator_t spiffs_partition_iterator = esp_partition_find(ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_DATA_SPIFFS, "www");
+    while (spiffs_partition_iterator != NULL){
+        spiffs_partition = esp_partition_get(spiffs_partition_iterator);
+        spiffs_partition_iterator = esp_partition_next(spiffs_partition_iterator);
+    }
+    vTaskDelay(1000 / portTICK_PERIOD_MS);
+    esp_partition_iterator_release(spiffs_partition_iterator);
+    
+    userData_t userData = {
+        .dataType = USER_DATA_WRITE_PARTITION,
+        .dataLength = 0,
+        .totalDataLength = 0,
+        .buf = NULL,
+        .bufSize = 0,
+        .spiffs_partition = spiffs_partition,
+    };
+    httpsRequest(release->fileWwwUrl, &userData);
+
+    if (userData.totalDataLength < spiffs_partition->size) {
+        ESP_LOGE(TAG, "Upgrade SPIFFS WWW failed: complete data was not received.");
+        return UPDATE_WWW_NOT_COMPLITE_DATA;
+    } 
+
+    ESP_LOGI(TAG, "Upgrade SPIFFS WWW part successful");
+    return UPDATE_WWW_SUCCESSFULLY;
+}
+
+void otaTask(void *pvParameter)
+{
+    uint64_t releaseId = (uint64_t)pvParameter;
+    home_ota_state_t res = UPDATE_OTA_UPDATING;
+    setOtaState(res);
+
+    release_t *release = getReleaseById(releaseId);
+    if (release == NULL) {
+        ESP_LOGE(TAG, "Failed OTA upgrade: release %llu not found", releaseId);
+        setOtaState(UPDATE_RELEASE_NOTFOUND);
+        vTaskDelete(NULL);
+    }
+
+    res = otaUpdate(release);
+    if (res != UPDATE_OTA_SUCCESSFULLY){
+        setOtaState(res);
+        vTaskDelete(NULL);
+    }
+
+    res = UPDATE_WWW_UPDATING;
+    setOtaState(res);
+    res = wwwUpdate(release);
+    if (res != UPDATE_WWW_SUCCESSFULLY){
+        setOtaState(res);
+    }
+
+    ESP_LOGI(TAG, "Upgrade successful. Rebooting ...");
+    vTaskDelay(1000 / portTICK_PERIOD_MS);
+    esp_restart();
+}     
+
+void checkReleaseTask(void *pvParameter)
 {
     if(xSemaphoreTake(xMutexRI, MUTEX_RI_TAKE_TICK_PERIOD ) != pdTRUE) {
         ESP_LOGE(TAG, "Failed request releases: mutex not taked");
@@ -275,7 +368,14 @@ void httpsRequestGetReleases(void *pvParameter)
     char url[MAX_URL_SIZE];
     sprintf(url, GITHUB_RELEASES_URL, GITHUB_USER, GITHUB_REPO);
     char buf[MAX_HTTP_OUTPUT_BUFFER];
-    httpsRequest(url, buf);
+    userData_t userData = {
+        .dataType = USER_DATA_BUF,
+        .dataLength = 0,
+        .totalDataLength = 0,
+        .buf = buf,
+        .bufSize = MAX_HTTP_OUTPUT_BUFFER
+    };
+    httpsRequest(url, &userData);
     // TOTO parse Releases
 
     cJSON *root = cJSON_Parse(buf);      
@@ -295,10 +395,22 @@ void httpsRequestGetReleases(void *pvParameter)
         
         cJSON *jsonAssets = cJSON_GetObjectItem(jsonRelease, "assets");
         if (jsonAssets) {
-            cJSON *jsonAsset = cJSON_GetArrayItem(jsonAssets, 0);
-            if (jsonAsset) {
-                jsonStrValue(jsonAsset, release->fileName, sizeof(release->fileName), "name", "");
-                jsonStrValue(jsonAsset, release->fileUrl, sizeof(release->fileUrl), "browser_download_url", "");      
+            int idxA = 0;
+            cJSON *jsonAsset = cJSON_GetArrayItem(jsonAssets, idxA);
+            while (jsonAsset) {
+                char fileName[64] = {0};
+                jsonStrValue(jsonAsset, fileName, sizeof(fileName), "name", "");
+                
+                if (strcmp(fileName, "audiomatrix_switch.bin") == 0) {
+                    strlcpy(release->fileOtaName, fileName, sizeof(release->fileOtaName));
+                    jsonStrValue(jsonAsset, release->fileOtaUrl, sizeof(release->fileOtaUrl), "browser_download_url", "");   
+                }
+                else if (strcmp(fileName, "www.bin") == 0) {
+                    strlcpy(release->fileWwwName, fileName, sizeof(release->fileWwwName));
+                    jsonStrValue(jsonAsset, release->fileWwwUrl, sizeof(release->fileWwwUrl), "browser_download_url", "");   
+                } 
+                idxA++;
+                jsonAsset = cJSON_GetArrayItem(jsonAssets, idxA); 
             }
         }
         idx++;
@@ -307,7 +419,7 @@ void httpsRequestGetReleases(void *pvParameter)
     cJSON_Delete(root);
 
     releaseInfo.countReleases = idx;
-    releaseInfo.otaState = HOME_OTA_IDLE;
+    releaseInfo.otaState = UPDATE_IDLE;
     time(&(releaseInfo.lastCheck));
     xSemaphoreGive(xMutexRI);
     vTaskDelete(NULL);
@@ -337,8 +449,10 @@ const char * getReleasesInfo()
         cJSON_AddStringToObject(json_release, "release_url", release->releaseUrl);
         cJSON_AddStringToObject(json_release, "tag_name", release->tagName);
         cJSON_AddNumberToObject(json_release, "published", release->published);
-        cJSON_AddStringToObject(json_release, "file_url", release->fileUrl);
-        cJSON_AddStringToObject(json_release, "file_name", release->fileName);
+        cJSON_AddStringToObject(json_release, "file_ota_url", release->fileOtaUrl);
+        cJSON_AddStringToObject(json_release, "file_ota_name", release->fileOtaName);
+        cJSON_AddStringToObject(json_release, "file_www_url", release->fileWwwUrl);
+        cJSON_AddStringToObject(json_release, "file_www_name", release->fileWwwName);
     }    
 
     cJSON_AddNumberToObject(root, "count_releases", releaseInfo.countReleases);
@@ -362,7 +476,7 @@ void doFirmwareUpgrade(uint64_t release)
 
 void updateReleasesInfo()
 {
-    xTaskCreate(&httpsRequestGetReleases, "httpsRequest", MAX_RELEASE_SIZE * MAX_RELEASES + MAX_TLS_TASK_SIZE, NULL, 5, NULL);
+    xTaskCreate(&checkReleaseTask, "checkReleaseTask", MAX_RELEASE_SIZE * MAX_RELEASES + MAX_TLS_TASK_SIZE, NULL, 5, NULL);
     vTaskDelay(1000 / portTICK_PERIOD_MS);
 }
 

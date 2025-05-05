@@ -7,18 +7,23 @@ extern "C" {
 #endif
 
 typedef enum {
-    HOME_OTA_IDLE = 0,
-    HOME_OTA_UPDATING,
-    HOME_OTA_UPDATE_FAIL,
-    HOME_OTA_UPDATE_BEGIN_FAIL,
-    HOME_OTA_UPDATE_RELEASE_NOTFOUND,
-    HOME_OTA_UPDATE_RELEASE_FILEURL_ISEMPTY,
-    HOME_OTA_UPDATE_CANNOT_GET_IMG_DESCR,
-    HOME_OTA_UPDATE_SAME_VERSION,
-    HOME_OTA_UPDATE_NOT_COMPLITE_DATA,
-    HOME_OTA_UPDATE_IMAGE_CORRUPTED
-
-    
+    UPDATE_IDLE = 0,
+    UPDATE_OTA_UPDATING,
+    UPDATE_OTA_SUCCESSFULLY,
+    UPDATE_RELEASE_NOTFOUND,
+    UPDATE_OTA_FAIL,
+    UPDATE_OTA_BEGIN_FAIL,
+    UPDATE_OTA_FILEURL_ISEMPTY,
+    UPDATE_OTA_CANNOT_GET_IMG_DESCR,
+    UPDATE_OTA_SAME_VERSION,
+    UPDATE_OTA_NOT_COMPLITE_DATA,
+    UPDATE_OTA_IMAGE_CORRUPTED,
+    UPDATE_WWW_UPDATING,
+    UPDATE_WWW_SUCCESSFULLY,
+    UPDATE_WWW_FAIL,
+    UPDATE_WWW_FILEURL_ISEMPTY,
+    UPDATE_WWW_NOT_COMPLITE_DATA,
+    UPDATE_WWW_UPDATE_NOT_COMPLITE_DATA,
 } home_ota_state_t;
 
 typedef struct {
@@ -27,8 +32,10 @@ typedef struct {
     char releaseUrl[256];   // url
     char tagName[32];       // tag_name
     time_t published;       // published_at
-    char fileUrl[256];      // assets/browser_download_url
-    char fileName[64];      // assets/name   
+    char fileOtaUrl[256];      // assets/browser_download_url
+    char fileOtaName[64];      // assets/name   
+    char fileWwwUrl[256];      // assets/browser_download_url
+    char fileWwwName[64];      // assets/name 
 } release_t;
 
 typedef struct {
