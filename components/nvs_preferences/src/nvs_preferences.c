@@ -28,7 +28,7 @@ BaseType_t getStrPref(nvs_handle_t pHandle, const char *key, char *value, size_t
             ESP_LOGE(TAG, "Failed to get preferences \"%s\": The size (%d) of the returned string is larger than the buffer size (%d)", key, outValueSize, valueSize);
             return pdFALSE;
         }
-        err = nvs_get_str(pHandle, key, value, &outValueSize);
+        nvs_get_str(pHandle, key, value, &outValueSize);
         return pdTRUE;
     }
         

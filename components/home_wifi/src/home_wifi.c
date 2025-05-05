@@ -53,12 +53,9 @@ static const char *TAG = "home_wifi";
 
 static wifiConfig_t wifiConfig;
 static int s_retry_num = 0;
-static esp_ip4_addr_t iPv4;
 static SemaphoreHandle_t xMutex;
 static nvs_handle_t pHandle = 0;
 static esp_netif_t *netif = NULL;
-
-//wifiState_t wifiState;
 
 BaseType_t getMAC(uint8_t *mac){
     esp_err_t ret = esp_wifi_get_mac(0, mac); // для WIFI Station
@@ -71,7 +68,7 @@ BaseType_t getMAC(uint8_t *mac){
 }
 
 BaseType_t getIPv4Str(char * iPv4Str){
-    snprintf(iPv4Str, 16, IPSTR, IP2STR(&iPv4));
+    snprintf(iPv4Str, 16, IPSTR, IP2STR(&(wifiConfig.ipaddr)));
     return pdTRUE;
 }
 
@@ -107,6 +104,7 @@ static void eventPost(int32_t eventId)
 
 static void wifiStated()
 {
+
     setupPeriodicTimeUpdates();
     eventPost(HOME_WIFI_EVENT_START);
 } 
@@ -141,9 +139,9 @@ static void wifiEventHandler(void* arg, esp_event_base_t event_base,
     }
     else if (event_base == IP_EVENT && event_id == IP_EVENT_STA_GOT_IP) {
         ip_event_got_ip_t* event = (ip_event_got_ip_t*) event_data;
-        iPv4 = event->ip_info.ip;
+        wifiConfig.ipaddr = event->ip_info.ip;
         ESP_LOGI(TAG, "connected to AP SSID: %s, password: %s", WIFI_SSID, WIFI_PASS);
-        ESP_LOGI(TAG, "got ip: " IPSTR, IP2STR(&iPv4));
+        ESP_LOGI(TAG, "got ip: " IPSTR, IP2STR(&(wifiConfig.ipaddr)));
         s_retry_num = 0;
         wifiStated();
     }
@@ -309,6 +307,7 @@ BaseType_t saveWifiConfig(wifiConfig_t *pWifiConfig)
             return pdFALSE;
         }
     }
+
     if(xSemaphoreTake( xMutex, MUTEX_TAKE_TICK_PERIOD ) != pdTRUE) {
         ESP_LOGE(TAG, "Failed saving wifi config: mutex not taked");
         return pdFALSE;

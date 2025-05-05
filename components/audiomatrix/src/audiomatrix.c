@@ -76,6 +76,7 @@ void sendOutputToDispaly()
         lcdWriteStr(line);
     }
 }
+
 static void sendOutputToMatrix()
 {
     uint16_t shift = 0;
@@ -445,6 +446,7 @@ BaseType_t getHaMQTTOutputConfig(uint8_t num, uint8_t class, char *topic, size_t
     cJSON_AddStringToObject(root, "name", output->name);
     cJSON_AddStringToObject(root, "object_id", output->objectId);
     cJSON_AddStringToObject(root, "unique_id", output->uniqueId);
+    cJSON_AddStringToObject(root, "icon", "mdi:volume-source");
     cJSON_AddStringToObject(root, "command_topic", output->commandTopic);
     cJSON_AddStringToObject(root, "state_topic", device.stateTopic);
     if (output->class == CLASS_SWITCH) {

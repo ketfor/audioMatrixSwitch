@@ -288,9 +288,7 @@ static home_ota_state_t otaUpdate(release_t *release)
 
 static home_ota_state_t wwwUpdate(release_t *release)
 {
-    esp_err_t err = ESP_OK;
     esp_partition_t *spiffs_partition = NULL;
-    char ota_write_data[BUFFSIZE + 1] = { 0 };
     ESP_LOGI(TAG, "Starting upgrade SPIFFS WWW");
     
     if (strlen(release->fileWwwUrl) == 0) {
@@ -300,7 +298,7 @@ static home_ota_state_t wwwUpdate(release_t *release)
     
     esp_partition_iterator_t spiffs_partition_iterator = esp_partition_find(ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_DATA_SPIFFS, "www");
     while (spiffs_partition_iterator != NULL){
-        spiffs_partition = esp_partition_get(spiffs_partition_iterator);
+        spiffs_partition = (esp_partition_t *)esp_partition_get(spiffs_partition_iterator);
         spiffs_partition_iterator = esp_partition_next(spiffs_partition_iterator);
     }
     vTaskDelay(1000 / portTICK_PERIOD_MS);
@@ -327,7 +325,7 @@ static home_ota_state_t wwwUpdate(release_t *release)
 
 void otaTask(void *pvParameter)
 {
-    uint64_t releaseId = (uint64_t)pvParameter;
+    uint64_t releaseId = *((uint64_t*)pvParameter);
     home_ota_state_t res = UPDATE_OTA_UPDATING;
     setOtaState(res);
 
@@ -469,7 +467,7 @@ const char * getReleasesInfo()
 
 void doFirmwareUpgrade(uint64_t release)
 {
-    xTaskCreate (&otaTask, "otaTask", MAX_OTA_TASK_SIZE + MAX_TLS_TASK_SIZE, (void*)release, 5, NULL);
+    xTaskCreate (&otaTask, "otaTask", MAX_OTA_TASK_SIZE + MAX_TLS_TASK_SIZE, (void*)&release, 5, NULL);
     vTaskDelay(1000 / portTICK_PERIOD_MS);
 }
 
