@@ -79,7 +79,10 @@ void sendOutputToDispaly()
 static void sendOutputToMatrix()
 {
     uint16_t shift = 0;
-    for (int num = OUT_PORTS - 1; num >= 0; num--) {
+    uint8_t nums[] = {1,0,3,2};
+
+    for (uint8_t i = 0; i < sizeof(nums); i++) {
+        uint8_t num = nums[i];
         shift <<= 4;
         switch (device.outputs[num].inputPort) {
             case 0: 

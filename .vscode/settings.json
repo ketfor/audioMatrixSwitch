@@ -66,7 +66,15 @@
         "stdlib.h": "c",
         "ctype.h": "c",
         "param.h": "c",
-        "home_ota.h": "c"
+        "home_ota.h": "c",
+        "bitset": "c",
+        "chrono": "c",
+        "unordered_map": "c",
+        "format": "c",
+        "istream": "c",
+        "limits": "c",
+        "mutex": "c",
+        "streambuf": "c"
     },
     "idf.flashType": "UART"
 }
