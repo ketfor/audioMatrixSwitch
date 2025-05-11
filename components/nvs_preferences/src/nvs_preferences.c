@@ -25,13 +25,16 @@ BaseType_t getStrPref(nvs_handle_t pHandle, const char *key, char *value, size_t
     err = nvs_get_str(pHandle, key, NULL, &outValueSize);
     if(err == ESP_OK) {
         if (valueSize < outValueSize) {
-            ESP_LOGE(TAG, "Failed to get preferences \"%s\": The size (%d) of the returned string is larger than the buffer size (%d)", key, outValueSize, valueSize);
-            return pdFALSE;
+            ESP_LOGW(TAG, "Failed to get preferences \"%s\": The size (%d) of the returned string is larger than the buffer size (%d)", key, outValueSize, valueSize);
+            char* newValue = malloc(outValueSize);
+            nvs_get_str(pHandle, key, value, &outValueSize);
+            strlcpy(value, newValue, valueSize);
+            free(newValue);
+            return pdTRUE;
         }
         nvs_get_str(pHandle, key, value, &outValueSize);
         return pdTRUE;
-    }
-        
+    } 
     else {
         ESP_LOGE(TAG, "Failed to get preferences \"%s\": %d (%s)", key, err, esp_err_to_name(err));
         return pdFALSE;

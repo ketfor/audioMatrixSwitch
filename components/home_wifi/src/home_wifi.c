@@ -159,9 +159,6 @@ static BaseType_t initializeWifi(void)
 
     ESP_LOGI(TAG, "Initializing wifi %s", modeStr);
 
-    initializeMdns(wifiConfig.hostname);
-    initializeNetbiosns(wifiConfig.hostname);
-
     if (netif != NULL) {
         ESP_LOGI(TAG, "Wifi %s deinit begin...", modeStr);
         ESP_ERROR_CHECK(esp_wifi_stop());
@@ -179,7 +176,9 @@ static BaseType_t initializeWifi(void)
         ESP_LOGE(TAG, "Wifi init fail: unknow mode: %s", modeStr);
         return pdFALSE;
     }
-    //esp_netif_set_hostname(netif, wifiConfig.hostname);
+    esp_netif_set_hostname(netif, wifiConfig.hostname);
+    initializeMdns(wifiConfig.hostname);
+    initializeNetbiosns(wifiConfig.hostname);
 
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
     ESP_ERROR_CHECK(esp_wifi_init(&cfg));
