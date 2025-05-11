@@ -24,7 +24,7 @@
 #define SKIP_VALIDATE_VERSION
 
 static const char *TAG = "home_ota";
-static const char *GITHUB_RELEASES_URL = "https://api.github.com/repos/%s/%s/releases";
+static const char *GITHUB_RELEASES_URL = "https://api.github.com/repos/%s/%s/releases?per_page=%d";
 
 extern const unsigned char api_cert_start[] asm("_binary_ca_cert_pem_start");
 extern const unsigned char api_cert_end[]   asm("_binary_ca_cert_pem_end");
@@ -364,7 +364,7 @@ void checkReleaseTask(void *pvParameter)
     ESP_LOGI(TAG, "https_request for releases");
 
     char url[MAX_URL_SIZE];
-    sprintf(url, GITHUB_RELEASES_URL, GITHUB_USER, GITHUB_REPO);
+    sprintf(url, GITHUB_RELEASES_URL, GITHUB_USER, GITHUB_REPO, MAX_RELEASES);
     char buf[MAX_HTTP_OUTPUT_BUFFER];
     userData_t userData = {
         .dataType = USER_DATA_BUF,
