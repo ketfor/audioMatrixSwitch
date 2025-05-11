@@ -27,7 +27,7 @@ BaseType_t getStrPref(nvs_handle_t pHandle, const char *key, char *value, size_t
         if (valueSize < outValueSize) {
             ESP_LOGW(TAG, "Failed to get preferences \"%s\": The size (%d) of the returned string is larger than the buffer size (%d)", key, outValueSize, valueSize);
             char* newValue = malloc(outValueSize);
-            nvs_get_str(pHandle, key, value, &outValueSize);
+            nvs_get_str(pHandle, key, newValue, &outValueSize);
             strlcpy(value, newValue, valueSize);
             free(newValue);
             return pdTRUE;
