@@ -444,7 +444,7 @@ BaseType_t getHaMQTTOutputConfig(uint8_t num, uint8_t class, char *topic, size_t
     }
     // Object
     cJSON_AddStringToObject(root, "name", output->name);
-    cJSON_AddStringToObject(root, "object_id", output->objectId);
+    cJSON_AddStringToObject(root, "default_entity_id", output->objectId);
     cJSON_AddStringToObject(root, "unique_id", output->uniqueId);
     cJSON_AddStringToObject(root, "icon", "mdi:volume-source");
     cJSON_AddStringToObject(root, "command_topic", output->commandTopic);
